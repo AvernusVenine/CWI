@@ -99,9 +99,10 @@ for well in located_wells:
 
     mdb_cursor.execute('''
     SELECT * FROM c4st WHERE RELATEID = ?
-    ''', relate_id)
+    ''', well['relateid'])
 
     layers = mdb_cursor.fetchall()
+    prev_strat = 'AIR'
 
     for layer in layers:
 
@@ -110,18 +111,26 @@ for well in located_wells:
 
         ## DETERMINE IF THE LAYER IS BEDROCK OR NOT
         strat = layer[6]
+
+        if strat is None:
+            continue
+
         is_bedrock = 1 if not strat.startswith(("Q", "W", "R", "U")) else 0
 
         sql_cursor.execute('''
-        INSERT INTO layers (relate_id, depth_top, depth_bot, desc, is_bedrock, strat, lith_prim, lith_sec, lith_minor)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (relate_id, depth_top, depth_bot, layer[3], is_bedrock, strat, layer[7], layer[8], layer[9]))
+        INSERT INTO layers (relate_id, depth_top, depth_bot, desc, is_bedrock, strat, lith_prim, lith_sec, lith_minor, previous_strat)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (relate_id, depth_top, depth_bot, layer[3], is_bedrock, strat, layer[7], layer[8], layer[9], prev_strat))
+
+        ## IF THERE IS NO NEW VALUE FOR STRATIGRAPHY, KEEP THE SAME previous_strat VALUE
+
+        prev_strat = prev_strat if strat is None else strat
 
         layer_id = sql_cursor.lastrowid
 
         ## ONEHOT ENCODING OF COLORS
 
-        color = layer[4]
+        color = '' if layer[4] is None else layer[4]
 
         color_map = {
             'blue' : ['BLU', 'BLUE'],
@@ -150,7 +159,7 @@ for well in located_wells:
 
         ## ONEHOT ENCODING OF HARDNESS
 
-        hardness = layer[5]
+        hardness = '' if layer[5] is None else layer[5]
 
         hardness_map = {
             'very_soft' : ['V.SFT'],
@@ -166,5 +175,4 @@ for well in located_wells:
                     UPDATE layers SET {col} = ? WHERE layer_id = ?
                 ''', (1, layer_id))
 
-
-        ## NATURAL LANGUAGE PROCESSOR TO DETERMINE ONEHOT ENCODING OF DESCRIPTION
+        sql_conn.commit()
