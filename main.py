@@ -1,67 +1,135 @@
-import sqlite3
+import sys
+import joblib
+import numpy as np
+from sentence_transformers import SentenceTransformer
 import pandas as pd
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QListWidget, QListWidgetItem, QComboBox, QFormLayout, \
+    QLineEdit, QPushButton, QLabel
 
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.model_selection import train_test_split
+label_map = {'Air': -1, 'Quaternary': 0, 'Recent': 1, 'Bedrock': 2}
+rev_label_map = {-1: 'Air', 0: 'Quaternary', 1: 'Recent', 2: 'Bedrock'}
+color_map = {'Brown': 'B', 'Gray': 'G', 'Blue': 'G', 'Black': 'K', 'Red': 'R', 'Green': 'L', 'Orange': 'O',
+             'Other/Varied': 'U', 'White': 'W', 'Yellow': 'Y'}
+quat_type_map = {
+  0: 'B',
+  1: 'C',
+  2: 'F',
+  3: 'G',
+  4: 'I',
+  5: 'J',
+  6: 'H',
+  7: 'L',
+  8: 'W',
+  9: 'P',
+  10: 'N',
+  11: 'R',
+  12: 'S',
+  13: 'T',
+  14: 'U'
+}
 
-## TODO: Refine ONEHOT encoding to account for all possible values
-## TODO: Refine description to possibly make it ONEHOT, likely have to ask for a list from a QUAT GEOLOGIST
+strat_age_model = joblib.load('trained_models/LGBM_Strat_Age_Model.joblib')
+quat_type_model = joblib.load('trained_models/LGBM_Quat_Type_Model.joblib')
+recent_type_model = joblib.load('trained_models/LGBM_Recent_Type_Model.joblib')
 
-sql_conn = sqlite3.connect('compiled_data/hennepin.db')
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
-query = '''
-SELECT
-    layers.depth_top,
-    layers.depth_bot,
-    layers.desc,
-    layers.color,
-    layers.hardness,
-    wells.utme,
-    wells.utmn,
-    wells.bedrock,
-    layers.strat,
-    layers.lith_prim,
-    layers.lith_sec,
-    layers.lith_minor
-FROM
-    layers
-JOIN
-    wells ON layers.relate_id = wells.relate_id;
-'''
+# TODO: Get more data to improve accuracy! Sits at 98.2% with some underrepresented types!
 
-df = pd.read_sql_query(query, sql_conn)
+def get_quaternary_code(color : str, description : str):
+    desc_emb = embedder.encode([description])
 
-# FILL MISSING DATA WITH UNKNOWNS AND DROP NULL STRAT ROWS
+    emb_df = pd.DataFrame(desc_emb, columns=[f"emb_{i}" for i in range(desc_emb.shape[1])])
 
-df = df.dropna(subset=['strat'])
-df = df.dropna(subset=['desc'])
+    type_prediction = quat_type_model.predict(emb_df)[0]
 
-df['color'] = df['color'].fillna('UNKNOWN')
-df['hardness'] = df['hardness'].fillna('UNKNOWN')
+    quat_string = 'Q' + quat_type_map[type_prediction] + 'U' + color_map[color]
+    predict_text.setText('Model Prediction: ' + quat_string)
 
-X = df[['depth_top', 'depth_bot', 'desc', 'color', 'hardness', 'utme', 'utmn', 'bedrock']]
-y = df['strat']
+    type_probs = quat_type_model.predict_proba(emb_df)[0]
+    type_conf = np.max(type_probs)
 
+    type_confidence_text.setText('Model Type Confidence: ' + str(type_conf))
 
-preprocessor = ColumnTransformer(
-    transformers=[
-        ('desc', TfidfVectorizer(), 'desc'),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), ['color', 'hardness']),
-        ('num', 'passthrough', ['depth_top', 'depth_bot', 'utme', 'utmn', 'bedrock'])
-    ]
-)
+# TODO: Get more data to improve accuracy! Too many underrepresented types, almost entirely unknowns!
 
-pipeline = Pipeline([
-    ('preprocessing', preprocessor),
-    ('classifier', RandomForestClassifier())
-])
+def get_recent_code(color : str, description : str):
+    desc_emb = embedder.encode([description])
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    emb_df = pd.DataFrame(desc_emb, columns=[f"emb_{i}" for i in range(desc_emb.shape[1])])
 
-pipeline.fit(X_train, y_train)
+    type_prediction = recent_type_model.predict(emb_df)[0]
 
-print("Accuracy:", pipeline.score(X_test, y_test))
+    quat_string = 'R' + quat_type_map[type_prediction] + 'U' + color_map[color]
+    predict_text.setText('Model Prediction: ' + quat_string)
+
+    type_probs = recent_type_model.predict_proba(emb_df)[0]
+    type_conf = np.max(type_probs)
+
+    type_confidence_text.setText('Model Type Confidence: ' + str(type_conf))
+
+# TODO: Cannot currently classify Wisconsonian or Unknown, too underrepresented!
+# TODO: Add redundancy to check description for colors because some data entry failed to separate it...
+
+def predict_stratigraphy():
+    description = driller_desc.text().strip().upper()
+    prev_strat = strat_combobox.currentText()
+    color = color_combobox.currentText()
+
+    desc_emb = embedder.encode([description])
+
+    emb_df = pd.DataFrame(desc_emb, columns=[f"emb_{i}" for i in range(desc_emb.shape[1])])
+    emb_df['prev_label'] = label_map[prev_strat]
+
+    prediction = strat_age_model.predict(emb_df)[0]
+
+    age_probs = strat_age_model.predict_proba(emb_df)[0]
+    age_conf = age_probs[prediction]
+
+    age_confidence_text.setText('Model Age Confidence: ' + str(age_conf))
+
+    if prediction == label_map['Quaternary']:
+        get_quaternary_code(color, description)
+    elif prediction == label_map['Recent']:
+        get_recent_code(color, description)
+    else:
+        predict_text.setText('Model Predicted Bedrock [Exact Classification TBA]')
+        type_confidence_text.setText('Model Type Confidence: ')
+
+# Build app GUI
+
+app = QApplication([])
+
+window = QWidget()
+window.setWindowTitle('CWI MN Stratigraphy Identifier')
+window.setGeometry(100, 100, 600, 200)
+
+layout = QFormLayout()
+driller_desc = QLineEdit()
+layout.addRow("Driller Description:", driller_desc)
+
+color_combobox = QComboBox()
+color_combobox.addItems(['Black', 'Blue', 'Brown', 'Green', 'Gray', 'Red', 'Orange', 'White', 'Yellow', 'Other/Varied'])
+layout.addRow("Color:", color_combobox)
+
+strat_combobox = QComboBox()
+strat_combobox.addItems(['Air', 'Quaternary', 'Recent', 'Bedrock'])
+layout.addRow("Previous Stratigraphy:", strat_combobox)
+
+predict_button = QPushButton('Predict')
+predict_button.clicked.connect(predict_stratigraphy)
+layout.addRow(predict_button)
+
+predict_text = QLabel('Model Prediction: ')
+layout.addRow(predict_text)
+
+age_confidence_text = QLabel('Model Age Confidence: ')
+layout.addRow(age_confidence_text)
+
+type_confidence_text = QLabel('Model Type Confidence: ')
+layout.addRow(type_confidence_text)
+
+window.setLayout(layout)
+
+window.show()
+sys.exit(app.exec_())
