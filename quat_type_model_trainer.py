@@ -81,4 +81,4 @@ print(classification_report(y_test, y_pred))
 
 print("SAVING")
 
-joblib.dump(clf, 'trained_models/LGBM_Quat_Type_Model.joblib')
+joblib.dump(clf, 'trained_models/old/LGBM_Quat_Type_Model.joblib')

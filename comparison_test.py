@@ -40,9 +40,9 @@ conn_str = (
 
 located_wells = DBF('well_data/cwilocs_NPS.dbf')
 
-strat_age_model = joblib.load('trained_models/LGBM_Strat_Age_Model.joblib')
-quat_type_model = joblib.load('trained_models/LGBM_Quat_Type_Model.joblib')
-recent_type_model = joblib.load('trained_models/LGBM_Recent_Type_Model.joblib')
+strat_age_model = joblib.load('trained_models/old/LGBM_Strat_Age_Model.joblib')
+quat_type_model = joblib.load('trained_models/old/LGBM_Quat_Type_Model.joblib')
+recent_type_model = joblib.load('trained_models/old/LGBM_Recent_Type_Model.joblib')
 
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 

@@ -6,95 +6,126 @@ import pandas as pd
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QListWidget, QListWidgetItem, QComboBox, QFormLayout, \
     QLineEdit, QPushButton, QLabel
 
-label_map = {'Air': -1, 'Quaternary': 0, 'Recent': 1, 'Bedrock': 2}
-rev_label_map = {-1: 'Air', 0: 'Quaternary', 1: 'Recent', 2: 'Bedrock'}
+#TODO: Im pretty sure PVMT (pavement) and PITT (pitt) arent bedrock and should be separated, but I need to ask
+
 color_map = {'Brown': 'B', 'Gray': 'G', 'Blue': 'G', 'Black': 'K', 'Red': 'R', 'Green': 'L', 'Orange': 'O',
              'Other/Varied': 'U', 'White': 'W', 'Yellow': 'Y'}
-quat_type_map = {
-  0: 'B',
-  1: 'C',
-  2: 'F',
-  3: 'G',
-  4: 'I',
-  5: 'J',
-  6: 'H',
-  7: 'L',
-  8: 'W',
-  9: 'P',
-  10: 'N',
-  11: 'R',
-  12: 'S',
-  13: 'T',
-  14: 'U'
-}
-
-strat_age_model = joblib.load('trained_models/LGBM_Strat_Age_Model.joblib')
-quat_type_model = joblib.load('trained_models/LGBM_Quat_Type_Model.joblib')
-recent_type_model = joblib.load('trained_models/LGBM_Recent_Type_Model.joblib')
 
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
-# TODO: Get more data to improve accuracy! Sits at 98.2% with some underrepresented types!
+pca = joblib.load('trained_models/embedding_pca.joblib')
 
-def get_quaternary_code(color : str, description : str):
-    desc_emb = embedder.encode([description])
+strat_age_model = joblib.load('trained_models/GBT_Age_Model.joblib')
+quat_type_model = joblib.load('trained_models/GBT_Quat_Model.joblib')
+bedrock_model = joblib.load('trained_models/GBT_Bedrock_Model.joblib')
 
-    emb_df = pd.DataFrame(desc_emb, columns=[f"emb_{i}" for i in range(desc_emb.shape[1])])
+geo_code_cat = joblib.load('trained_models/geo_code_categories.joblib')
+age_cat = joblib.load('trained_models/age_categories.joblib')
+quat_type_cat = joblib.load('trained_models/quat_type_categories.joblib')
+bedrock_cat = joblib.load('trained_models/bedrock_categories.joblib')
 
-    type_prediction = quat_type_model.predict(emb_df)[0]
 
-    quat_string = 'Q' + quat_type_map[type_prediction] + 'U' + color_map[color]
-    predict_text.setText('Model Prediction: ' + quat_string)
+def predict_bedrock(model_input, age_prediction):
 
-    type_probs = quat_type_model.predict_proba(emb_df)[0]
-    type_conf = np.max(type_probs)
+    model_input['age_cat'] = age_prediction
 
-    type_confidence_text.setText('Model Type Confidence: ' + str(type_conf))
+    bedrock_prediction = bedrock_model.predict(model_input)[0]
 
-# TODO: Get more data to improve accuracy! Too many underrepresented types, almost entirely unknowns!
+    bedrock_probs = bedrock_model.predict_proba(model_input)[0]
+    prob_index = list(bedrock_model.classes_).index(bedrock_prediction)
+    bedrock_conf = bedrock_probs[prob_index]
 
-def get_recent_code(color : str, description : str):
-    desc_emb = embedder.encode([description])
+    type_confidence_text.setText(f'Model Bedrock Group Confidence: {bedrock_conf}')
+    predict_text.setText(f'Model Prediction: {bedrock_cat[bedrock_prediction]}')
 
-    emb_df = pd.DataFrame(desc_emb, columns=[f"emb_{i}" for i in range(desc_emb.shape[1])])
+def predict_quat(model_input, color, age_prediction):
 
-    type_prediction = recent_type_model.predict(emb_df)[0]
+    model_input['age_cat'] = age_prediction
+    model_input = model_input.dropa(columns=['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn'])
 
-    quat_string = 'R' + quat_type_map[type_prediction] + 'U' + color_map[color]
-    predict_text.setText('Model Prediction: ' + quat_string)
+    quat_prediction = quat_type_model.predict(model_input)[0]
 
-    type_probs = recent_type_model.predict_proba(emb_df)[0]
-    type_conf = np.max(type_probs)
+    quat_probs = quat_type_model.predict_proba(model_input)[0]
+    prob_index = list(bedrock_model.classes_).index(quat_probs)
+    quat_conf = quat_probs[prob_index]
 
-    type_confidence_text.setText('Model Type Confidence: ' + str(type_conf))
+    final_code = f'{age_cat[age_prediction]}{quat_type_cat[quat_prediction]}U{color_map[color]}'
 
-# TODO: Cannot currently classify Wisconsonian or Unknown, too underrepresented!
+    type_confidence_text.setText(f'Model Quaternary Type Confidence: {quat_conf}')
+    predict_text.setText(f'Model Prediction: {final_code}')
+
 # TODO: Add redundancy to check description for colors because some data entry failed to separate it...
 
 def predict_stratigraphy():
     description = driller_desc.text().strip().upper()
-    prev_strat = strat_combobox.currentText()
     color = color_combobox.currentText()
 
     desc_emb = embedder.encode([description])
+    embedding_df = pd.DataFrame(desc_emb, columns=[f"emb_{i}" for i in range(desc_emb.shape[1])])
 
-    emb_df = pd.DataFrame(desc_emb, columns=[f"emb_{i}" for i in range(desc_emb.shape[1])])
-    emb_df['prev_label'] = label_map[prev_strat]
+    pca_embeddings = pca.transform(embedding_df)
+    pca_embeddings_df = pd.DataFrame(pca_embeddings, columns=[f'pca_emb_{i}' for i in range(pca_embeddings.shape[1])])
 
-    prediction = strat_age_model.predict(emb_df)[0]
+    try:
+        elevation = float(elevation_input.text().strip())
+    except ValueError:
+        print("INVALID ELEVATION INPUT")
+        return
 
-    age_probs = strat_age_model.predict_proba(emb_df)[0]
-    age_conf = age_probs[prediction]
+    try:
+        depth_top = float(depth_top_input.text().strip())
+        depth_bot = float(depth_bot_input.text().strip())
+    except ValueError:
+        print("INVALID DEPTH INPUTS")
+        return
 
-    age_confidence_text.setText('Model Age Confidence: ' + str(age_conf))
+    true_depth_top = elevation - depth_top
+    true_depth_bot = elevation - depth_bot
 
-    if prediction == label_map['Quaternary']:
-        get_quaternary_code(color, description)
-    elif prediction == label_map['Recent']:
-        get_recent_code(color, description)
+    try:
+        utme = int(utme_input.text().strip())
+        utmn = int(utmn_input.text().strip())
+    except ValueError:
+        print("INVALID UTM COORDINATES")
+        return
+
+    prev_age = age_cat.get_loc(age_combobox.currentText())
+
+    geo_code = geo_code_cat.get_loc(geo_code_combobox.currentText())
+
+    numerical_features = pd.DataFrame([{
+        'true_depth_bot': true_depth_bot,
+        'true_depth_top': true_depth_top,
+        'geo_code_cat': geo_code,
+        'utme': utme,
+        'utmn': utmn,
+        'prev_age_cat': prev_age
+    }])
+
+    model_input = pd.concat([numerical_features.reset_index(drop=True), pca_embeddings_df.reset_index(drop=True)], axis=1)
+
+    age_prediction = strat_age_model.predict(model_input)[0]
+
+    age_probs = strat_age_model.predict_proba(model_input)[0]
+    age_conf = age_probs[age_prediction]
+
+    age_confidence_text.setText(f'Model Age Confidence: {age_conf}')
+
+    # Model Predicts Basement
+    if age_cat[age_prediction] == 'B':
+        predict_text.setText('Model Prediction: BSMT')
+
+    # Model Predicts Man-Made Fill
+    elif age_cat[age_prediction] == 'F':
+        predict_text.setText('Model Prediction: RMMF')
+
+    # Model Predicts Quaternary, proceed to next model
+    elif age_cat[age_prediction] in ('Q', 'R'):
+        predict_quat(model_input, color, age_prediction)
+
+    # Model Predicts Bedrock, proceed to next model
     else:
-        predict_text.setText('Model Predicted Bedrock [Exact Classification TBA]')
-        type_confidence_text.setText('Model Type Confidence: ')
+        predict_bedrock(model_input, age_prediction)
 
 # Build app GUI
 
@@ -105,6 +136,7 @@ window.setWindowTitle('CWI MN Stratigraphy Identifier')
 window.setGeometry(100, 100, 600, 200)
 
 layout = QFormLayout()
+
 driller_desc = QLineEdit()
 layout.addRow("Driller Description:", driller_desc)
 
@@ -112,9 +144,34 @@ color_combobox = QComboBox()
 color_combobox.addItems(['Black', 'Blue', 'Brown', 'Green', 'Gray', 'Red', 'Orange', 'White', 'Yellow', 'Other/Varied'])
 layout.addRow("Color:", color_combobox)
 
-strat_combobox = QComboBox()
-strat_combobox.addItems(['Air', 'Quaternary', 'Recent', 'Bedrock'])
-layout.addRow("Previous Stratigraphy:", strat_combobox)
+age_combobox = QComboBox()
+age_combobox.addItems([str(age) for age in age_cat])
+layout.addRow("Previous Age:", age_combobox)
+
+geo_code_combobox = QComboBox()
+geo_code_combobox.addItems([str(code) for code in geo_code_cat])
+layout.addRow("Atlas Estimation:", geo_code_combobox)
+
+utme_input = QLineEdit()
+utmn_input = QLineEdit()
+
+utm_layout = QHBoxLayout()
+utm_layout.addWidget(utme_input)
+utm_layout.addWidget(utmn_input)
+
+layout.addRow('UTME/UTMN:', utm_layout)
+
+elevation_input = QLineEdit()
+layout.addRow("Elevation:", elevation_input)
+
+depth_top_input = QLineEdit()
+depth_bot_input = QLineEdit()
+
+depth_layout = QHBoxLayout()
+depth_layout.addWidget(depth_top_input)
+depth_layout.addWidget(depth_bot_input)
+
+layout.addRow('Depth Top/Depth Bot:', depth_layout)
 
 predict_button = QPushButton('Predict')
 predict_button.clicked.connect(predict_stratigraphy)
