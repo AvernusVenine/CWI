@@ -88,6 +88,7 @@ for index, layer in layer_df.iterrows():
         final_prediction = 'PITT'
         final_conf = age_prediction[1]
 
+
     # Model Predicts Man-Made Pavement
     elif age_cat[age_prediction[0]] == 'Y':
         final_prediction = 'PVMT'

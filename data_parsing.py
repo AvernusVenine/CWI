@@ -19,3 +19,4 @@ disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=all_labels)
 disp.plot(cmap=plt.cm.Blues)
 plt.xticks(rotation=45)
 plt.show()
+
