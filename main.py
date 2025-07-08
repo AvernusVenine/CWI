@@ -6,7 +6,7 @@ import pandas as pd
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QListWidget, QListWidgetItem, QComboBox, QFormLayout, \
     QLineEdit, QPushButton, QLabel
 
-#TODO: Im pretty sure PVMT (pavement) and PITT (pitt) arent bedrock and should be separated, but I need to ask
+#TODO: What codes besides PITT, PVMT, RMMF, and BSMT are man-made, need to separate them...
 
 color_map = {'Brown': 'B', 'Gray': 'G', 'Blue': 'G', 'Black': 'K', 'Red': 'R', 'Green': 'L', 'Orange': 'O',
              'Other/Varied': 'U', 'White': 'W', 'Yellow': 'Y'}
@@ -32,8 +32,7 @@ def predict_bedrock(model_input, age_prediction):
     bedrock_prediction = bedrock_model.predict(model_input)[0]
 
     bedrock_probs = bedrock_model.predict_proba(model_input)[0]
-    prob_index = list(bedrock_model.classes_).index(bedrock_prediction)
-    bedrock_conf = bedrock_probs[prob_index]
+    bedrock_conf = bedrock_probs[bedrock_prediction]
 
     type_confidence_text.setText(f'Model Bedrock Group Confidence: {bedrock_conf}')
     predict_text.setText(f'Model Prediction: {bedrock_cat[bedrock_prediction]}')
@@ -41,13 +40,12 @@ def predict_bedrock(model_input, age_prediction):
 def predict_quat(model_input, color, age_prediction):
 
     model_input['age_cat'] = age_prediction
-    model_input = model_input.dropa(columns=['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn'])
+    model_input = model_input.drop(columns=['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn'])
 
     quat_prediction = quat_type_model.predict(model_input)[0]
 
     quat_probs = quat_type_model.predict_proba(model_input)[0]
-    prob_index = list(bedrock_model.classes_).index(quat_probs)
-    quat_conf = quat_probs[prob_index]
+    quat_conf = quat_probs[quat_prediction]
 
     final_code = f'{age_cat[age_prediction]}{quat_type_cat[quat_prediction]}U{color_map[color]}'
 
@@ -89,9 +87,17 @@ def predict_stratigraphy():
         print("INVALID UTM COORDINATES")
         return
 
-    prev_age = age_cat.get_loc(age_combobox.currentText())
+    prev_age = age_combobox.currentText()
 
-    geo_code = geo_code_cat.get_loc(geo_code_combobox.currentText())
+    if prev_age == 'Air':
+        prev_age = -1
+    else:
+        prev_age = age_cat.index(prev_age)
+    print("AGE")
+
+    geo_code = geo_code_cat.index(geo_code_combobox.currentText())
+
+    print('GEOCODE')
 
     numerical_features = pd.DataFrame([{
         'true_depth_bot': true_depth_bot,
@@ -102,7 +108,10 @@ def predict_stratigraphy():
         'prev_age_cat': prev_age
     }])
 
-    model_input = pd.concat([numerical_features.reset_index(drop=True), pca_embeddings_df.reset_index(drop=True)], axis=1)
+    model_input = pd.concat([numerical_features.reset_index(drop=True), pca_embeddings_df.reset_index(drop=True)],
+                            axis=1)
+
+    print(model_input.columns.tolist())
 
     age_prediction = strat_age_model.predict(model_input)[0]
 
@@ -114,10 +123,22 @@ def predict_stratigraphy():
     # Model Predicts Basement
     if age_cat[age_prediction] == 'B':
         predict_text.setText('Model Prediction: BSMT')
+        type_confidence_text.setText('')
 
     # Model Predicts Man-Made Fill
     elif age_cat[age_prediction] == 'F':
         predict_text.setText('Model Prediction: RMMF')
+        type_confidence_text.setText('')
+
+    # Model Predicts Man-Made Pitt
+    elif age_cat[age_prediction] == 'X':
+        predict_text.setText('Model Prediction: PITT')
+        type_confidence_text.setText('')
+
+    # Model Predicts Man-Made Pavement
+    elif age_cat[age_prediction] == 'Y':
+        predict_text.setText('Model Prediction: PVMT')
+        type_confidence_text.setText('')
 
     # Model Predicts Quaternary, proceed to next model
     elif age_cat[age_prediction] in ('Q', 'R'):
@@ -145,11 +166,12 @@ color_combobox.addItems(['Black', 'Blue', 'Brown', 'Green', 'Gray', 'Red', 'Oran
 layout.addRow("Color:", color_combobox)
 
 age_combobox = QComboBox()
+age_combobox.addItems(['Air'])
 age_combobox.addItems([str(age) for age in age_cat])
 layout.addRow("Previous Age:", age_combobox)
 
 geo_code_combobox = QComboBox()
-geo_code_combobox.addItems([str(code) for code in geo_code_cat])
+geo_code_combobox.addItems([code for code in geo_code_cat])
 layout.addRow("Atlas Estimation:", geo_code_combobox)
 
 utme_input = QLineEdit()

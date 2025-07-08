@@ -3,9 +3,9 @@ from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
 import joblib
 from sklearn.model_selection import train_test_split
-from lightgbm import LGBMClassifier, LGBMModel
+from lightgbm import LGBMClassifier
 from sklearn.metrics import accuracy_score, classification_report
-
+from torch.backends.mkl import verbose
 
 cwi_well_data_path = 'compiled_data/cwi_wells.csv'
 cwi_layer_data_path = 'compiled_data/cwi_layers.csv'
@@ -33,7 +33,11 @@ cwi_layers = cwi_layers.fillna(value={
 
 # TODO: Be sure to map these outputs back!
 # Process strat to minimize the amount of possible outputs by removing the color and sorting values
-cwi_layers['strat'] = cwi_layers['strat'].replace('RMMF',  'FILL')
+cwi_layers['strat'] = cwi_layers['strat'].replace({
+    'RMMF': 'FILL',
+    'PITT': 'X',
+    'PVMT': 'Y'
+})
 cwi_layers['age'] =  cwi_layers['strat'].str[0]
 
 cwi_layers['elevation'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['elevation'])
@@ -48,11 +52,11 @@ cwi_layers = cwi_layers[~cwi_layers['age'].isin(['N', 'I'])]
 
 geo_code_cat = cwi_layers['geo_code'].astype('category')
 cwi_layers['geo_code_cat'] = geo_code_cat.cat.codes
-joblib.dump(geo_code_cat.cat.categories, 'trained_models/geo_code_categories.joblib')
+joblib.dump(list(geo_code_cat.cat.categories), 'trained_models/geo_code_categories.joblib')
 
 age_cat = cwi_layers['age'].astype('category')
 cwi_layers['age_cat'] = age_cat.cat.codes
-joblib.dump(age_cat.cat.categories, 'trained_models/age_categories.joblib')
+joblib.dump(list(age_cat.cat.categories), 'trained_models/age_categories.joblib')
 
 print("EMBEDDING DESCRIPTIONS")
 
@@ -60,8 +64,6 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 
 desc_embeddings = model.encode(cwi_layers['drllr_desc'].tolist(), show_progress_bar=True)
 embedding_df = pd.DataFrame(desc_embeddings, columns=[f"emb_{i}" for i in range(desc_embeddings.shape[1])])
-
-#model.save('trained_models/sentence_embedder')
 
 print("PERFORMING PCA")
 
@@ -71,10 +73,11 @@ pca_embeddings = pca.fit_transform(embedding_df)
 pca_embeddings_df = pd.DataFrame(pca_embeddings, columns=[f'pca_emb_{i}' for i in range(pca_embeddings.shape[1])])
 joblib.dump(pca, 'trained_models/embedding_pca.joblib')
 
-layer_features = cwi_layers[['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'age_cat', 'strat']]
+layer_features = cwi_layers[['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'age_cat',
+                             'strat', 'color', 'drllr_desc']]
 
 all_features = pd.concat([layer_features.reset_index(drop=True), pca_embeddings_df.reset_index(drop=True)], axis=1)
-all_features = all_features.sort_values(by=['relateid', 'true_depth_top'])
+all_features = all_features.sort_values(by=['relateid', 'true_depth_top'], ascending=[True, False])
 all_features['prev_age_cat'] = (
     all_features.groupby('relateid')['age_cat']
     .shift(1)
@@ -82,16 +85,21 @@ all_features['prev_age_cat'] = (
     .astype(int)
 )
 
+#TODO: Remove once done with
+all_features.to_csv('compiled_data/layers_all_features.csv', index=False)
+
 #TODO: In full application B and F only have one output type and thus should be returned as that and not put through more models
 def train_age_classifier():
     print("TRAINING AGE CLASSIFIER")
 
     y = all_features['age_cat'].copy()
-    X = all_features.drop(columns=['relateid', 'age_cat', 'strat'])
+    X = all_features.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc'])
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    gbt_age = LGBMClassifier(class_weight='balanced')
+    print(X_train.columns.tolist())
+
+    gbt_age = LGBMClassifier(class_weight='balanced', verbose=-1)
     gbt_age.fit(X_train, y_train)
 
     joblib.dump(gbt_age, 'trained_models/GBT_Age_Model.joblib')
@@ -114,14 +122,14 @@ def train_quat_classifier():
     quat_type = quat_layers['strat'].str[1]
     quat_type_cat = quat_type.astype('category')
     quat_type = quat_type_cat.cat.codes
-    joblib.dump(quat_type_cat.cat.categories, 'trained_models/quat_type_categories.joblib')
+    joblib.dump(list(quat_type_cat.cat.categories), 'trained_models/quat_type_categories.joblib')
 
-    X = quat_layers.drop(columns=['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'strat'])
+    X = quat_layers.drop(columns=['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'strat', 'color', 'drllr_desc'])
     y = quat_type
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    gbt_quat = LGBMClassifier(class_weight='balanced')
+    gbt_quat = LGBMClassifier(class_weight='balanced', verbose=-1)
     gbt_quat.fit(X_train, y_train)
 
     joblib.dump(gbt_quat, 'trained_models/GBT_Quat_Model.joblib')
@@ -139,18 +147,18 @@ def train_quat_classifier():
 def train_bedrock_classifier():
     print("TRAINING BEDROCK CLASSIFIER")
 
-    bedrock_layers = all_features[~all_features['strat'].str.startswith(('Q', 'R', 'B', 'F'))]
+    bedrock_layers = all_features[~all_features['strat'].str.startswith(('Q', 'R', 'B', 'F', 'X', 'Y'))]
 
     bedrock_cat = bedrock_layers['strat'].astype('category')
     bedrock = bedrock_cat.cat.codes
     joblib.dump(bedrock_cat.cat.categories, 'trained_models/bedrock_categories.joblib')
 
-    X = bedrock_layers.drop(columns=['relateid', 'strat'])
+    X = bedrock_layers.drop(columns=['relateid', 'strat', 'color', 'drllr_desc'])
     y = bedrock
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    gbt_bedrock = LGBMClassifier(class_weight='balanced')
+    gbt_bedrock = LGBMClassifier(class_weight='balanced', verbose=-1)
     gbt_bedrock.fit(X_train, y_train)
 
     joblib.dump(gbt_bedrock, 'trained_models/GBT_Bedrock_Model.joblib')
