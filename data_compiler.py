@@ -1,14 +1,16 @@
 import pandas as pd
 import arcpy
 
-county_number = 27
-county_name = 'hennepin'
+print(arcpy.GetInstallInfo())
+
+county_number = 1
+county_name = 'aitkin'
 
 cwi_well_data_path = 'cwi_data/cwi5.csv'
 cwi_strat_data_path = 'cwi_data/c5st.csv'
 
-gis_glacial_data_path = 'gis_data/hennepin_glacial.gdb'
-gis_bedrock_data_path = 'gis_data/hennepin_bedrock.gdb'
+gis_glacial_data_path = 'gis_data/aitkin_glacial.gdb'
+gis_bedrock_data_path = 'gis_data/aitkin_bedrock.gdb'
 
 cwi_wells_save_path = 'compiled_data/cwi_wells.csv'
 cwi_layers_save_path = 'compiled_data/cwi_layers.csv'
@@ -116,5 +118,5 @@ arcpy.env.workspace = gis_glacial_data_path
 glacial_rasters = get_raster_list()
 parse_rasters(glacial_rasters)
 
-wells_df.to_csv(cwi_wells_save_path, mode='a')
-layers_df.to_csv(cwi_layers_save_path, mode='a')
+wells_df.to_csv(cwi_wells_save_path, mode='a', header=False)
+layers_df.to_csv(cwi_layers_save_path, mode='a', header=False)

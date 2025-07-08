@@ -5,12 +5,9 @@ import joblib
 from sklearn.model_selection import train_test_split
 from lightgbm import LGBMClassifier
 from sklearn.metrics import accuracy_score, classification_report
-from torch.backends.mkl import verbose
 
 cwi_well_data_path = 'compiled_data/cwi_wells.csv'
 cwi_layer_data_path = 'compiled_data/cwi_layers.csv'
-
-model_save_path = ''
 
 print("PREPARING DATA")
 
@@ -74,7 +71,7 @@ pca_embeddings_df = pd.DataFrame(pca_embeddings, columns=[f'pca_emb_{i}' for i i
 joblib.dump(pca, 'trained_models/embedding_pca.joblib')
 
 layer_features = cwi_layers[['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'age_cat',
-                             'strat', 'color', 'drllr_desc']]
+                             'strat', 'color', 'drllr_desc', 'elevation']]
 
 all_features = pd.concat([layer_features.reset_index(drop=True), pca_embeddings_df.reset_index(drop=True)], axis=1)
 all_features = all_features.sort_values(by=['relateid', 'true_depth_top'], ascending=[True, False])
@@ -99,7 +96,7 @@ def train_age_classifier():
 
     print(X_train.columns.tolist())
 
-    gbt_age = LGBMClassifier(class_weight='balanced', verbose=-1)
+    gbt_age = LGBMClassifier(class_weight='balanced', n_estimators=500, verbose=-1, boosting_type='dart')
     gbt_age.fit(X_train, y_train)
 
     joblib.dump(gbt_age, 'trained_models/GBT_Age_Model.joblib')
@@ -175,7 +172,7 @@ def train_bedrock_classifier():
 
     pass
 
-train_quat_classifier()
 train_age_classifier()
-train_bedrock_classifier()
+#train_quat_classifier()
+#train_bedrock_classifier()
 
