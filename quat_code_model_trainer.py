@@ -6,6 +6,8 @@ from sklearn.model_selection import train_test_split
 from lightgbm import LGBMClassifier
 from sklearn.metrics import accuracy_score, classification_report
 
+from sklearn.preprocessing import StandardScaler
+
 cwi_well_data_path = 'compiled_data/cwi_wells.csv'
 cwi_layer_data_path = 'compiled_data/cwi_layers.csv'
 
@@ -82,6 +84,10 @@ all_features['prev_age_cat'] = (
     .astype(int)
 )
 
+scale_cols = ['true_depth_top', 'true_depth_bot', 'elevation', 'utme', 'utmn']
+scaler = StandardScaler()
+all_features[scale_cols] = scaler.fit_transform(all_features[scale_cols])
+
 #TODO: Remove once done with
 all_features.to_csv('compiled_data/layers_all_features.csv', index=False)
 
@@ -94,9 +100,7 @@ def train_age_classifier():
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    print(X_train.columns.tolist())
-
-    gbt_age = LGBMClassifier(class_weight='balanced', n_estimators=500, verbose=-1, boosting_type='dart')
+    gbt_age = LGBMClassifier(class_weight='balanced', n_estimators=1000, verbose=-1, boosting_type='dart')
     gbt_age.fit(X_train, y_train)
 
     joblib.dump(gbt_age, 'trained_models/GBT_Age_Model.joblib')
@@ -121,7 +125,8 @@ def train_quat_classifier():
     quat_type = quat_type_cat.cat.codes
     joblib.dump(list(quat_type_cat.cat.categories), 'trained_models/quat_type_categories.joblib')
 
-    X = quat_layers.drop(columns=['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'strat', 'color', 'drllr_desc'])
+    X = quat_layers.drop(columns=['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'strat',
+                                  'color', 'drllr_desc', 'elevation'])
     y = quat_type
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
@@ -173,6 +178,6 @@ def train_bedrock_classifier():
     pass
 
 train_age_classifier()
-#train_quat_classifier()
-#train_bedrock_classifier()
+train_quat_classifier()
+train_bedrock_classifier()
 

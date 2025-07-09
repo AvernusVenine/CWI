@@ -62,7 +62,7 @@ mismatch_df = pd.DataFrame(columns=['relateid', 'actual', 'predicted', 'age_conf
 
 for index, layer in layer_df.iterrows():
 
-    model_features = ['true_depth_bot', 'true_depth_top', 'geo_code_cat', 'utme', 'utmn', 'prev_age_cat'] + \
+    model_features = ['true_depth_bot', 'true_depth_top', 'geo_code_cat', 'utme', 'utmn', 'prev_age_cat', 'elevation'] + \
                      [col for col in layer_df.columns if col.startswith('pca_emb_')]
 
     model_input = pd.DataFrame([layer[model_features].values], columns=model_features)
@@ -118,5 +118,9 @@ for index, layer in layer_df.iterrows():
             'atlas_estimate': geo_code_cat[int(layer['geo_code_cat'])],
             'color': layer['color']
         }
+
+        if len(mismatch_df) > 20:
+            mismatch_df.to_csv('compiled_data/mismatch.csv')
+            break
 
 mismatch_df.to_csv('compiled_data/mismatch.csv')
