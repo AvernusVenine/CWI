@@ -8,26 +8,34 @@ from sklearn.metrics import accuracy_score, classification_report
 
 from sklearn.preprocessing import StandardScaler
 
-cwi_well_data_path = 'compiled_data/cwi_wells.csv'
-cwi_layer_data_path = 'compiled_data/cwi_layers.csv'
+#TODO: Need to get a list of data_src that come directly from geologists or trusted sources
+
+bedrock_map = {
+
+}
+
+cwi_well_data_path = 'cwi_data/cwi5.csv'
+cwi_layer_data_path = 'cwi_data/c5st.csv'
 
 print("PREPARING DATA")
 
-cwi_wells = pd.read_csv(cwi_well_data_path, low_memory=False)
-cwi_layers = pd.read_csv(cwi_layer_data_path, low_memory=False)
+cwi_wells = pd.read_csv(cwi_well_data_path, low_memory=False, on_bad_lines='skip')
+cwi_layers = pd.read_csv(cwi_layer_data_path, low_memory=False, on_bad_lines='skip')
 
+#TODO: Possibly remove to allow for null location values?
 cwi_wells = cwi_wells.dropna(subset=['elevation', 'utmn', 'utme'])
 cwi_wells = cwi_wells.fillna(value={
     'data_src': -1
 })
+
+cwi_layers = cwi_layers.drop(columns=['objectid', 'c5st_seq_no', 'wellid', 'concat', 'stratcode_gen', 'stratcode_detail'])
 
 cwi_layers = cwi_layers.dropna(subset=['strat'])
 cwi_layers.loc[cwi_layers['depth_bot'].isna(), 'depth_bot'] = cwi_layers['depth_top']
 cwi_layers = cwi_layers.fillna(value={
     'color': 'UNKNOWN',
     'hardness': 'MEDIUM',
-    'drllr_desc': '',
-    'geo_code': 'UNKNOWN'
+    'drllr_desc': ''
 })
 
 # TODO: Be sure to map these outputs back!
@@ -49,10 +57,6 @@ cwi_layers['true_depth_bot'] = cwi_layers['elevation'] - cwi_layers['depth_bot']
 # Ignore 'No Record' and 'Indeterminate' classes as they are invalid classifications
 cwi_layers = cwi_layers[~cwi_layers['age'].isin(['N', 'I'])]
 
-geo_code_cat = cwi_layers['geo_code'].astype('category')
-cwi_layers['geo_code_cat'] = geo_code_cat.cat.codes
-joblib.dump(list(geo_code_cat.cat.categories), 'trained_models/geo_code_categories.joblib')
-
 age_cat = cwi_layers['age'].astype('category')
 cwi_layers['age_cat'] = age_cat.cat.codes
 joblib.dump(list(age_cat.cat.categories), 'trained_models/age_categories.joblib')
@@ -72,7 +76,7 @@ pca_embeddings = pca.fit_transform(embedding_df)
 pca_embeddings_df = pd.DataFrame(pca_embeddings, columns=[f'pca_emb_{i}' for i in range(pca_embeddings.shape[1])])
 joblib.dump(pca, 'trained_models/embedding_pca.joblib')
 
-layer_features = cwi_layers[['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'age_cat',
+layer_features = cwi_layers[['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'age_cat',
                              'strat', 'color', 'drllr_desc', 'elevation']]
 
 all_features = pd.concat([layer_features.reset_index(drop=True), pca_embeddings_df.reset_index(drop=True)], axis=1)
@@ -91,7 +95,6 @@ all_features[scale_cols] = scaler.fit_transform(all_features[scale_cols])
 #TODO: Remove once done with
 all_features.to_csv('compiled_data/layers_all_features.csv', index=False)
 
-#TODO: In full application B and F only have one output type and thus should be returned as that and not put through more models
 def train_age_classifier():
     print("TRAINING AGE CLASSIFIER")
 
@@ -100,14 +103,14 @@ def train_age_classifier():
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    gbt_age = LGBMClassifier(class_weight='balanced', n_estimators=1000, verbose=-1, boosting_type='dart')
-    gbt_age.fit(X_train, y_train)
+    age_classifier = LGBMClassifier(class_weight='balanced', n_estimators=1000, verbose=-1, boosting_type='dart')
+    age_classifier.fit(X_train, y_train)
 
-    joblib.dump(gbt_age, 'trained_models/GBT_Age_Model.joblib')
+    joblib.dump(age_classifier, 'trained_models/GBT_Age_Model.joblib')
 
     print("EVALUATING AGE CLASSIFIER")
 
-    y_pred = gbt_age.predict(X_test)
+    y_pred = age_classifier.predict(X_test)
 
     y_test_labels = age_cat.cat.categories[y_test.values]
     y_pred_labels = age_cat.cat.categories[y_pred]
@@ -125,26 +128,28 @@ def train_quat_classifier():
     quat_type = quat_type_cat.cat.codes
     joblib.dump(list(quat_type_cat.cat.categories), 'trained_models/quat_type_categories.joblib')
 
-    X = quat_layers.drop(columns=['true_depth_top', 'true_depth_bot', 'geo_code_cat', 'utme', 'utmn', 'relateid', 'strat',
+    X = quat_layers.drop(columns=['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'strat',
                                   'color', 'drllr_desc', 'elevation'])
     y = quat_type
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    gbt_quat = LGBMClassifier(class_weight='balanced', verbose=-1)
-    gbt_quat.fit(X_train, y_train)
+    quat_classifier = LGBMClassifier(class_weight='balanced', verbose=-1)
+    quat_classifier.fit(X_train, y_train)
 
-    joblib.dump(gbt_quat, 'trained_models/GBT_Quat_Model.joblib')
+    joblib.dump(quat_classifier, 'trained_models/GBT_Quat_Model.joblib')
 
     print("EVALUATING QUAT TYPE CLASSIFIER")
 
-    y_pred = gbt_quat.predict(X_test)
+    y_pred = quat_classifier.predict(X_test)
 
     y_test_labels = quat_type_cat.cat.categories[y_test.values]
     y_pred_labels = quat_type_cat.cat.categories[y_pred]
 
     print("Accuracy:", accuracy_score(y_test, y_pred))
     print(classification_report(y_test_labels, y_pred_labels, zero_division=0))
+
+#TODO: Try by initially grouping bedrocks based on formation and see accuracy there
 
 def train_bedrock_classifier():
     print("TRAINING BEDROCK CLASSIFIER")
@@ -160,14 +165,14 @@ def train_bedrock_classifier():
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    gbt_bedrock = LGBMClassifier(class_weight='balanced', verbose=-1)
-    gbt_bedrock.fit(X_train, y_train)
+    bedrock_classifier = LGBMClassifier(class_weight='balanced', verbose=-1)
+    bedrock_classifier.fit(X_train, y_train)
 
-    joblib.dump(gbt_bedrock, 'trained_models/GBT_Bedrock_Model.joblib')
+    joblib.dump(bedrock_classifier, 'trained_models/GBT_Bedrock_Model.joblib')
 
     print("EVALUATING BEDROCK CLASSIFIER")
 
-    y_pred = gbt_bedrock.predict(X_test)
+    y_pred = bedrock_classifier.predict(X_test)
 
     y_test_labels = bedrock_cat.cat.categories[y_test.values]
     y_pred_labels = bedrock_cat.cat.categories[y_pred]

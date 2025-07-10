@@ -2,8 +2,17 @@ import pandas as pd
 import arcpy
 from pathlib import Path
 
-county_number = 20
-county_name = 'dodge'
+'''
+Compiled counties:
+HENNEPIN [27], DODGE [20], ANOKA [2], BROWN [8]
+
+Counties without data:
+BENTON, BLUE EARTH, BROWN
+ '''
+
+
+county_number = 8
+county_name = 'Brown'
 
 cwi_well_data_path = 'cwi_data/cwi5.csv'
 cwi_strat_data_path = 'cwi_data/c5st.csv'
@@ -43,12 +52,12 @@ def get_raster_list_gdb() -> list:
     return raster_list
 
 def get_raster_list_folder(path : str) -> list:
-    subfolders = [subfolder for subfolder in Path(path).iterdir() if subfolder.is_dir()]
+    subfolders = [subfolder.name for subfolder in Path(path).iterdir() if subfolder.is_dir()]
 
     raster_list = []
 
     for folder in subfolders:
-        folder = folder.split('_')
+        folder = str(folder).split('_')
 
         if folder[0] not in raster_list:
             raster_list.append(folder[0])
@@ -136,16 +145,18 @@ def parse_rasters_gdb(raster_list : list):
         parse_raster(top_raster, base_raster, raster)
 
 
-gis_glacial_data_path = 'gis_data/dodge_glacial.gdb'
-gis_bedrock_data_path = 'gis_data/dodge_bedrock.gdb'
+gis_glacial_data_path = 'gis_data/brown_glacial.gdb'
+gis_bedrock_data_path = 'gis_data/brown_bedrock'
 
-arcpy.env.workspace = gis_bedrock_data_path
-bedrock_rasters = get_raster_list_gdb()
-parse_rasters_gdb(bedrock_rasters)
+#arcpy.env.workspace = gis_bedrock_data_path
+#bedrock_rasters = get_raster_list_folder(gis_bedrock_data_path)
+#parse_rasters_folder(bedrock_rasters, gis_bedrock_data_path)
+
 
 arcpy.env.workspace = gis_glacial_data_path
 glacial_rasters = get_raster_list_gdb()
 parse_rasters_gdb(glacial_rasters)
+
 
 wells_df.to_csv(cwi_wells_save_path, mode='a', header=False)
 layers_df.to_csv(cwi_layers_save_path, mode='a', header=False)
