@@ -1,18 +1,17 @@
 import pandas as pd
+from matplotlib import pyplot as plt
 from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
 import joblib
 from sklearn.model_selection import train_test_split
 from lightgbm import LGBMClassifier
-from sklearn.metrics import accuracy_score, classification_report
-
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.preprocessing import StandardScaler
+from imblearn.over_sampling import SMOTE
+import seaborn as sns
+import random
 
 #TODO: Need to get a list of data_src that come directly from geologists or trusted sources
-
-bedrock_map = {
-
-}
 
 cwi_well_data_path = 'cwi_data/cwi5.csv'
 cwi_layer_data_path = 'cwi_data/c5st.csv'
@@ -47,12 +46,16 @@ cwi_layers['strat'] = cwi_layers['strat'].replace({
 })
 cwi_layers['age'] =  cwi_layers['strat'].str[0]
 
+cwi_layers['age'] = cwi_layers['age'].str.replace(r'^[WJB]', 'Z', regex=True)
+
 cwi_layers['elevation'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['elevation'])
 cwi_layers['utme'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['utme'])
 cwi_layers['utmn'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['utmn'])
 
-cwi_layers['true_depth_top'] = cwi_layers['elevation'] - cwi_layers['depth_top']
-cwi_layers['true_depth_bot'] = cwi_layers['elevation'] - cwi_layers['depth_bot']
+cwi_layers = cwi_layers.dropna(subset=['utme', 'utmn', 'elevation'])
+
+cwi_layers['true_depth_top'] = cwi_layers['depth_top']
+cwi_layers['true_depth_bot'] = cwi_layers['depth_bot']
 
 # Ignore 'No Record' and 'Indeterminate' classes as they are invalid classifications
 cwi_layers = cwi_layers[~cwi_layers['age'].isin(['N', 'I'])]
@@ -95,15 +98,84 @@ all_features[scale_cols] = scaler.fit_transform(all_features[scale_cols])
 #TODO: Remove once done with
 all_features.to_csv('compiled_data/layers_all_features.csv', index=False)
 
+# A custom SMOTE function that only creates faux data points from given data columns while duplicating the rest
+def fit_smote(X_df : pd.DataFrame, y_df : pd.DataFrame, count : int, label : int, label_col : str, random_state : int, data_cols : list):
+
+    random.seed(random_state)
+
+    X_filtered_df = X_df[y_df[label_col] == label]
+    df_size = X_filtered_df.shape[0]
+
+    X_new = []
+    y_new = []
+
+    for i in range(count):
+        df_index_one = random.randint(0, df_size - 1)
+        df_index_two = random.randint(0, df_size - 1)
+
+        new_row = X_filtered_df.iloc[df_index_one].copy()
+
+        for col in data_cols:
+            df_val_one = X_filtered_df.iloc[df_index_one][col]
+            df_val_two = X_filtered_df.iloc[df_index_two][col]
+
+            rand_float = random.uniform(min(df_val_one, df_val_two), max(df_val_one, df_val_two))
+
+            new_row[col] = rand_float
+
+        X_new.append(new_row)
+        y_new.append(label)
+
+    X_new = pd.DataFrame(X_new)
+    y_new = pd.DataFrame(y_new, columns=[label_col])
+
+    return pd.concat([X_df, X_new], ignore_index=True), pd.concat([y_df, y_new], ignore_index=True)
+
 def train_age_classifier():
     print("TRAINING AGE CLASSIFIER")
 
-    y = all_features['age_cat'].copy()
-    X = all_features.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc'])
+    y = all_features[['age_cat']].copy()
+    #X = all_features.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc'])
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
+    X_train, X_test, y_train, y_test = train_test_split(
+        all_features, y,
+        test_size=0.2,
+        random_state=127,
+    )
 
-    age_classifier = LGBMClassifier(class_weight='balanced', n_estimators=1000, verbose=-1, boosting_type='dart')
+    label_mapping = dict(zip(age_cat.cat.categories, range(len(age_cat.cat.categories))))
+    inv_label_mapping = {v: k for k, v in label_mapping.items()}
+
+    X_train, y_train = fit_smote(X_train, y_train, 10000, label_mapping['X'], 'age_cat', 127,
+                                 ['utme', 'utmn', 'elevation', 'true_depth_top', 'true_depth_bot']
+                                 )
+    X_train, y_train = fit_smote(X_train, y_train, 10000, label_mapping['Y'], 'age_cat', 127,
+                                 ['utme', 'utmn', 'elevation', 'true_depth_top', 'true_depth_bot']
+                                 )
+    X_train, y_train = fit_smote(X_train, y_train, 50000, label_mapping['F'], 'age_cat', 127,
+                                 ['utme', 'utmn', 'elevation', 'true_depth_top', 'true_depth_bot']
+                                 )
+
+    X_train = pd.concat([
+        X_train[X_train['age_cat'] != 'Q'],
+        X_train[X_train['age_cat'] == 'Q'].sample(frac=0.25, random_state=127)
+    ], ignore_index=True)
+
+    X_train = X_train.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc'])
+    X_test = X_test.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc'])
+
+    y_test = y_test.squeeze()
+    y_train = y_train.squeeze()
+
+    age_classifier = LGBMClassifier(
+        n_estimators=200,
+        verbose=-1,
+        boosting_type='dart',
+        device='gpu',
+        class_weight='balanced',
+        min_child_samples=20,
+        min_data_in_leaf=20
+    )
     age_classifier.fit(X_train, y_train)
 
     joblib.dump(age_classifier, 'trained_models/GBT_Age_Model.joblib')
@@ -112,11 +184,26 @@ def train_age_classifier():
 
     y_pred = age_classifier.predict(X_test)
 
-    y_test_labels = age_cat.cat.categories[y_test.values]
-    y_pred_labels = age_cat.cat.categories[y_pred]
+    y_test_labels = pd.Series(y_test).map(inv_label_mapping)
+    y_pred_labels = pd.Series(y_pred).map(inv_label_mapping)
 
     print("Accuracy:", accuracy_score(y_test, y_pred))
     print(classification_report(y_test_labels, y_pred_labels, zero_division=0))
+
+    cm = confusion_matrix(y_test, y_pred)
+
+    labels = list(age_cat.cat.categories)
+    cm_df = pd.DataFrame(cm, index=labels, columns=labels)
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm_df, annot=True, fmt='g', cmap='Blues', cbar=True)
+    plt.title('Confusion Matrix')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.xticks(rotation=45)
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
 
 def train_quat_classifier():
     print("TRAINING QUATERNARY CLASSIFIER")
@@ -180,9 +267,8 @@ def train_bedrock_classifier():
     print("Accuracy:", accuracy_score(y_test, y_pred))
     print(classification_report(y_test_labels, y_pred_labels, zero_division=0))
 
-    pass
 
 train_age_classifier()
-train_quat_classifier()
-train_bedrock_classifier()
+#train_quat_classifier()
+#train_bedrock_classifier()
 

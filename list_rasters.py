@@ -1,6 +1,6 @@
 import arcpy
 
-gis_data_path = 'gis_data/Benton.gdb'
+gis_data_path = 'cwi_data/Benton.gdb'
 
 arcpy.env.workspace = gis_data_path
 
