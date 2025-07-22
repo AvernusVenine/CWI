@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from sentence_transformers import SentenceTransformer
@@ -13,6 +14,24 @@ import random
 
 #TODO: Need to get a list of data_src that come directly from geologists or trusted sources
 
+trusted_sources = [
+    'MGS',
+    'MDH',
+    'MDA',
+    'MNDNR',
+    'MNDOT',
+    'MNPCA',
+    'MSU',
+    'UMGEO',
+    '1548',
+    'USGS',
+    'E0064',
+    'M0113',
+    'M0119',
+    'M0166',
+    'M0165'
+]
+
 cwi_well_data_path = 'cwi_data/cwi5.csv'
 cwi_layer_data_path = 'cwi_data/c5st.csv'
 
@@ -24,7 +43,7 @@ cwi_layers = pd.read_csv(cwi_layer_data_path, low_memory=False, on_bad_lines='sk
 #TODO: Possibly remove to allow for null location values?
 cwi_wells = cwi_wells.dropna(subset=['elevation', 'utmn', 'utme'])
 cwi_wells = cwi_wells.fillna(value={
-    'data_src': -1
+    'data_src': '-1'
 })
 
 cwi_layers = cwi_layers.drop(columns=['objectid', 'c5st_seq_no', 'wellid', 'concat', 'stratcode_gen', 'stratcode_detail'])
@@ -51,6 +70,7 @@ cwi_layers['age'] = cwi_layers['age'].str.replace(r'^[WJB]', 'Z', regex=True)
 cwi_layers['elevation'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['elevation'])
 cwi_layers['utme'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['utme'])
 cwi_layers['utmn'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['utmn'])
+cwi_layers['data_src'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['data_src'])
 
 cwi_layers = cwi_layers.dropna(subset=['utme', 'utmn', 'elevation'])
 
@@ -80,7 +100,7 @@ pca_embeddings_df = pd.DataFrame(pca_embeddings, columns=[f'pca_emb_{i}' for i i
 joblib.dump(pca, 'trained_models/embedding_pca.joblib')
 
 layer_features = cwi_layers[['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'age_cat',
-                             'strat', 'color', 'drllr_desc', 'elevation']]
+                             'strat', 'color', 'drllr_desc', 'elevation', 'data_src']]
 
 all_features = pd.concat([layer_features.reset_index(drop=True), pca_embeddings_df.reset_index(drop=True)], axis=1)
 all_features = all_features.sort_values(by=['relateid', 'true_depth_top'], ascending=[True, False])
@@ -135,7 +155,6 @@ def train_age_classifier():
     print("TRAINING AGE CLASSIFIER")
 
     y = all_features[['age_cat']].copy()
-    #X = all_features.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc'])
 
     X_train, X_test, y_train, y_test = train_test_split(
         all_features, y,
@@ -156,27 +175,34 @@ def train_age_classifier():
                                  ['utme', 'utmn', 'elevation', 'true_depth_top', 'true_depth_bot']
                                  )
 
+    # Under sample Q
     X_train = pd.concat([
         X_train[X_train['age_cat'] != 'Q'],
         X_train[X_train['age_cat'] == 'Q'].sample(frac=0.25, random_state=127)
     ], ignore_index=True)
 
-    X_train = X_train.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc'])
-    X_test = X_test.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc'])
+    y_train = X_train[['age_cat']].copy()
+
+    weights = X_train[['data_src']].copy()
+    weights['data_src'] = weights['data_src'].str.strip()
+    weights['data_src'] = np.where(weights['data_src'].isin(trusted_sources), 5, 1)
+
+    X_train = X_train.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc', 'data_src'])
+    X_test = X_test.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc', 'data_src'])
 
     y_test = y_test.squeeze()
     y_train = y_train.squeeze()
 
     age_classifier = LGBMClassifier(
-        n_estimators=200,
+        n_estimators=300,
         verbose=-1,
         boosting_type='dart',
         device='gpu',
         class_weight='balanced',
-        min_child_samples=20,
-        min_data_in_leaf=20
+        min_child_samples=25,
+        min_data_in_leaf=25,
     )
-    age_classifier.fit(X_train, y_train)
+    age_classifier.fit(X_train, y_train, sample_weight=weights['data_src'])
 
     joblib.dump(age_classifier, 'trained_models/GBT_Age_Model.joblib')
 
@@ -205,23 +231,40 @@ def train_age_classifier():
     plt.tight_layout()
     plt.show()
 
+#TODO: There are only 5 quat codes that contain 'R', and thus should be treated as a massive outlier that requries a human to compute
 def train_quat_classifier():
     print("TRAINING QUATERNARY CLASSIFIER")
 
     quat_layers = all_features[all_features['strat'].str.startswith(('Q', 'R'))]
+    quat_layers = quat_layers[quat_layers['strat'].str[1] != 'R']
 
     quat_type = quat_layers['strat'].str[1]
     quat_type_cat = quat_type.astype('category')
     quat_type = quat_type_cat.cat.codes
     joblib.dump(list(quat_type_cat.cat.categories), 'trained_models/quat_type_categories.joblib')
 
-    X = quat_layers.drop(columns=['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'strat',
-                                  'color', 'drllr_desc', 'elevation'])
     y = quat_type
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
+    X_train, X_test, y_train, y_test = train_test_split(quat_layers, y, test_size=0.2, random_state=127)
 
-    quat_classifier = LGBMClassifier(class_weight='balanced', verbose=-1)
+    weights = X_train[['data_src']].copy()
+    weights['data_src'] = weights['data_src'].str.strip()
+    weights['data_src'] = np.where(weights['data_src'].isin(trusted_sources), 5, 1)
+
+    X_train = X_train.drop(columns=['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'strat',
+                                  'color', 'drllr_desc', 'elevation', 'data_src'])
+    X_test = X_test.drop(columns=['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'strat',
+                                  'color', 'drllr_desc', 'elevation', 'data_src'])
+
+    quat_classifier = LGBMClassifier(
+        n_estimators=300,
+        verbose=-1,
+        boosting_type='dart',
+        device='gpu',
+        class_weight='balanced',
+        min_child_samples=25,
+        min_data_in_leaf=25,
+    )
     quat_classifier.fit(X_train, y_train)
 
     joblib.dump(quat_classifier, 'trained_models/GBT_Quat_Model.joblib')
@@ -241,18 +284,38 @@ def train_quat_classifier():
 def train_bedrock_classifier():
     print("TRAINING BEDROCK CLASSIFIER")
 
-    bedrock_layers = all_features[~all_features['strat'].str.startswith(('Q', 'R', 'B', 'F', 'X', 'Y'))]
+    bedrock_layers = all_features[~all_features['strat'].str.startswith(('Q', 'R', 'B', 'F', 'X', 'Y', 'Z', 'W', 'J'))]
 
     bedrock_cat = bedrock_layers['strat'].astype('category')
     bedrock = bedrock_cat.cat.codes
     joblib.dump(bedrock_cat.cat.categories, 'trained_models/bedrock_categories.joblib')
 
-    X = bedrock_layers.drop(columns=['relateid', 'strat', 'color', 'drllr_desc'])
+    category_counts = bedrock_cat.value_counts().sort_index()
+
+    for category, count in zip(bedrock_cat.cat.categories, category_counts):
+        print(f"{category}: {count}")
+
+    X = bedrock_layers
     y = bedrock
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    bedrock_classifier = LGBMClassifier(class_weight='balanced', verbose=-1)
+    weights = X_train[['data_src']].copy()
+    weights['data_src'] = weights['data_src'].str.strip()
+    weights['data_src'] = np.where(weights['data_src'].isin(trusted_sources), 5, 1)
+
+    X_train = X_train.drop(columns=['relateid', 'strat', 'color', 'drllr_desc'])
+    X_test = X_test.drop(columns=['relateid', 'strat', 'color', 'drllr_desc'])
+
+    bedrock_classifier = LGBMClassifier(
+        n_estimators=300,
+        verbose=-1,
+        boosting_type='dart',
+        device='gpu',
+        class_weight='balanced',
+        min_child_samples=25,
+        min_data_in_leaf=25,
+    )
     bedrock_classifier.fit(X_train, y_train)
 
     joblib.dump(bedrock_classifier, 'trained_models/GBT_Bedrock_Model.joblib')
@@ -268,7 +331,7 @@ def train_bedrock_classifier():
     print(classification_report(y_test_labels, y_pred_labels, zero_division=0))
 
 
-train_age_classifier()
-#train_quat_classifier()
-#train_bedrock_classifier()
+#train_age_classifier()
+train_quat_classifier()
+train_bedrock_classifier()
 

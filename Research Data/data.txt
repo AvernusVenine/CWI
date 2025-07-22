@@ -89,3 +89,495 @@ Accuracy: 0.9588089626625022
            X       0.96      0.95      0.96       171
            Y       0.64      0.90      0.75       143
            Z       0.11      0.63      0.19        19
+
+25% Q Representation
+
+Accuracy: 0.959133772129269
+              precision    recall  f1-score   support
+
+           C       0.88      0.98      0.93     17820
+           D       0.65      0.99      0.79      1035
+           F       0.56      0.94      0.70      2123
+           K       0.49      0.90      0.63      4170
+           O       0.91      0.96      0.94     21692
+           P       0.98      0.97      0.98     31035
+           Q       1.00      0.96      0.98    288168
+           R       0.93      0.99      0.96     17221
+           U       0.27      0.90      0.41      1244
+           X       0.96      0.95      0.96       171
+           Y       0.65      0.92      0.76       143
+           Z       0.12      0.63      0.21        19
+
+    accuracy                           0.96    384841
+   macro avg       0.70      0.92      0.77    384841
+weighted avg       0.97      0.96      0.96    384841
+
+300 Branches
+
+Accuracy: 0.9627248655938426
+              precision    recall  f1-score   support
+
+           C       0.89      0.98      0.93     17820
+           D       0.69      0.99      0.81      1035
+           F       0.63      0.94      0.76      2123
+           K       0.51      0.90      0.65      4170
+           O       0.91      0.96      0.93     21692
+           P       0.98      0.98      0.98     31035
+           Q       1.00      0.96      0.98    288168
+           R       0.93      0.97      0.95     17221
+           U       0.30      0.89      0.45      1244
+           X       0.96      0.95      0.96       171
+           Y       0.61      0.90      0.73       143
+           Z       0.24      0.53      0.33        19
+
+    accuracy                           0.96    384841
+   macro avg       0.72      0.91      0.79    384841
+weighted avg       0.97      0.96      0.97    384841
+
+WEIGHTED
+
+Accuracy: 0.9633225150126935
+              precision    recall  f1-score   support
+
+           C       0.88      0.98      0.93     17820
+           D       0.66      0.99      0.79      1035
+           F       0.65      0.94      0.77      2123
+           K       0.51      0.90      0.65      4170
+           O       0.92      0.96      0.94     21692
+           P       0.99      0.98      0.98     31035
+           Q       1.00      0.96      0.98    288168
+           R       0.93      0.99      0.96     17221
+           U       0.29      0.89      0.44      1244
+           X       0.96      0.95      0.96       171
+           Y       0.70      0.91      0.79       143
+           Z       0.31      0.58      0.41        19
+
+    accuracy                           0.96    384841
+   macro avg       0.73      0.92      0.80    384841
+weighted avg       0.97      0.96      0.97    384841
+
+Quat Code Classifier (R REMOVED DUE TO MINISCULE DATA):
+Have not yet done [weights, SMOTE, or under-sampling]
+
+Accuracy: 0.9824112284934166
+              precision    recall  f1-score   support
+
+           B       0.82      0.98      0.89      2732
+           C       1.00      0.99      1.00     89234
+           F       1.00      0.98      0.99     78852
+           G       0.98      0.98      0.98     16196
+           H       0.99      0.98      0.98     19854
+           I       0.95      0.98      0.96       941
+           J       0.92      0.97      0.94      1906
+           L       0.99      0.99      0.99     30466
+           N       0.91      0.93      0.92      6827
+           P       0.99      0.97      0.98     27413
+           S       0.68      0.94      0.79       474
+           T       0.84      0.95      0.89      2844
+           U       0.97      0.97      0.97     25213
+           W       0.69      0.92      0.79      2129
+
+    accuracy                           0.98    305081
+   macro avg       0.91      0.97      0.93    305081
+weighted avg       0.98      0.98      0.98    305081
+
+
+Bedrock Catagories:
+
+Undifferentiated:
+CAMB: 210
+PUDF: 1857
+
+Eau Claire:
+CECR: 5910
+CEMS: 1223
+
+Jordan Sandstone:
+CJDN: 23275 (MAIN)
+CJEC: 1
+CJDW: 8
+CJMS: 1
+CJSL: 1175
+CJTC: 269
+
+Lone Rock (PART OF TUNNEL CITY?):
+CLBK: 9
+CLRE: 21
+CLTM: 0
+
+Mt. Simon
+CMFL: 13
+CMRC: 22
+CMSH: 56
+CMTS: 6262 (MAIN)
+
+St. Lawrence:
+CSLT: 5258
+CSLW: 3
+CSTL: 10299 (MAIN)
+
+Tunnel City:
+CTCG: 19239 (MAIN)
+CTCM: 8
+CTCW: 1614
+CTLR: 6178
+CTCE: 59
+CTMZ: 132
+
+Wonewoc:
+CWMS: 60
+CWOC: 7573 (MAIN)
+CWEC: 721
+
+Coralville Formation:
+DCRL: 7 (MAIN)
+DCUM: 2
+DCGZ: 15
+DCIC: 9
+DCLC: 1
+
+Lower Cedar:
+DCLP: 334
+DCLS: 135
+DCOG: 27
+DCOM: 98
+DCVL: 1160 (MAIN)
+
+DCVA: 661
+DCVU: 898
+DEVO: 18
+DLBA: 23
+DLCB: 7
+DLCD: 2
+DLCH: 23
+DLGH: 31
+DLHE: 18
+DPOG: 10
+DPOM: 12
+DSOG: 73
+DSOM: 194
+DSPL: 996
+DWAP: 45
+DWPR: 355
+KCBH: 6
+KCCD: 2
+KCFP: 1
+KCLR: 315
+KCRL: 39
+KDKT: 5
+KDNB: 8
+KDWB: 13
+KGRN: 14
+KGRS: 14
+KREG: 3306
+KRET: 16794
+KSRC: 78
+KWIH: 13
+KWND: 294
+KWOS: 18
+ODCA: 3
+ODCR: 4563
+ODGL: 513
+ODPG: 144
+ODPL: 181
+ODSP: 3
+ODUB: 543
+OGAP: 22
+OGCD: 686
+OGCM: 2296
+OGDP: 69
+OGGP: 4
+OGPC: 1035
+OGPD: 45
+OGPR: 1052
+OGSC: 1836
+OGSD: 81
+OGSP: 259
+OGSV: 1313
+OGVP: 555
+OGWD: 6325
+OMAQ: 1096
+OMQD: 228
+OMQG: 234
+OOCV: 26
+OOHC: 11
+OPCJ: 589
+OPCM: 1
+OPCS: 18
+OPCT: 25
+OPDC: 41052
+OPGW: 1958
+OPHF: 16
+OPMA: 14
+OPMI: 25
+OPNR: 750
+OPOD: 2712
+OPPE: 11
+OPSH: 2001
+OPSP: 198
+OPVJ: 2
+OPVL: 8654
+OPWR: 601
+ORDO: 115
+ORRV: 27
+OSCJ: 51
+OSCS: 1
+OSPC: 1007
+OSPE: 12
+OSTM: 1
+OSTN: 13
+OSTP: 25995
+OWBI: 1
+OWIB: 1
+OWIN: 54
+PAAI: 124
+PAAM: 130
+PAAR: 5
+PAAU: 9
+PABD: 8
+PABG: 115
+PABK: 182
+PABL: 3
+PACG: 5
+PACH: 55
+PADL: 2
+PADS: 7
+PAEF: 11
+PAES: 198
+PAEY: 954
+PAFE: 214
+PAFI: 441
+PAFL: 1867
+PAFO: 1
+PAFR: 35
+PAFV: 20
+PAGF: 2
+PAGM: 9
+PAGN: 133
+PAGR: 872
+PAGU: 468
+PAIF: 241
+PAIG: 78
+PAII: 24
+PAIM: 147
+PAIV: 58
+PAJF: 2
+PAJL: 63
+PAJM: 11
+PAKG: 241
+PALC: 27
+PALG: 142
+PALK: 5
+PALL: 120
+PALP: 45
+PALS: 924
+PALT: 377
+PALV: 50
+PAMB: 214
+PAMC: 189
+PAMD: 234
+PAMF: 72
+PAMG: 27
+PAMH: 8
+PAMI: 35
+PAML: 95
+PAMP: 3
+PAMR: 794
+PAMS: 87
+PAMT: 45
+PAMU: 144
+PAMV: 102
+PANB: 278
+PANL: 10
+PANS: 32
+PANU: 140
+PANV: 16
+PAOG: 592
+PAOR: 3
+PAPG: 3
+PAPH: 1
+PAPL: 19
+PAQA: 5
+PAQF: 83
+PART: 67
+PASB: 12
+PASG: 39
+PASH: 10
+PASI: 11
+PASL: 50
+PASM: 1323
+PASN: 321
+PASR: 11
+PAST: 85
+PASZ: 42
+PATL: 95
+PAUD: 482
+PAUI: 2
+PAVC: 485
+PAVF: 71
+PAVM: 195
+PAVP: 138
+PAWB: 16
+PAWL: 19
+PCCR: 1159
+PCMU: 15
+PCRG: 40
+PCUU: 4117
+PEAG: 91
+PEAL: 8
+PEBC: 18
+PEBI: 22666
+PECS: 999
+PEDN: 36
+PEDQ: 93
+PEFG: 506
+PEFH: 38
+PEFI: 2
+PEFM: 92
+PEGI: 5
+PEGP: 25
+PEGT: 412
+PEGU: 140
+PEHL: 153
+PEIF: 886
+PEII: 1
+PEIL: 52
+PEIM: 8
+PELC: 47348
+PELF: 736
+PELR: 9
+PELS: 4772
+PEMG: 9
+PEML: 409
+PEMN: 145
+PEMS: 8
+PEMU: 32
+PEPG: 11
+PEPK: 1621
+PEPP: 58
+PEPZ: 13
+PEQA: 1
+PERB: 24
+PERD: 2
+PERE: 18
+PERF: 199
+PERG: 1
+PERK: 2
+PERU: 2
+PERV: 43
+PESC: 49
+PESG: 1
+PESI: 114
+PEST: 1
+PESX: 1023
+PETL: 3
+PETR: 987
+PEUC: 4469
+PEUD: 945
+PEUM: 6
+PEUS: 2213
+PEVT: 7775
+PEWR: 134
+PEWS: 52
+PEWT: 50
+PEWV: 43
+PEYV: 16
+PMAG: 18
+PMBB: 161
+PMBC: 12
+PMBE: 83
+PMBF: 232
+PMBI: 17
+PMBL: 80
+PMBM: 197
+PMBO: 191
+PMBR: 169
+PMBS: 33
+PMBT: 2950
+PMCF: 1
+PMCV: 590
+PMDA: 460
+PMDC: 2030
+PMDD: 190
+PMDE: 13
+PMDF: 14
+PMDL: 92
+PMDS: 69
+PMEP: 64
+PMES: 162
+PMFI: 52
+PMFL: 2025
+PMGI: 73
+PMGL: 44
+PMHF: 80
+PMHN: 2963
+PMHR: 189
+PMIF: 13
+PMII: 62
+PMIM: 1089
+PMIU: 8
+PMIV: 804
+PMKL: 3
+PMLB: 12
+PMLD: 976
+PMLS: 1
+PMMI: 98
+PMMU: 111
+PMNB: 1
+PMND: 15
+PMNF: 5
+PMNI: 14
+PMNL: 16
+PMNM: 51
+PMNP: 136
+PMNS: 688
+PMOI: 268
+PMPA: 2979
+PMPR: 1
+PMRC: 29
+PMSC: 116
+PMSD: 24
+PMSI: 6
+PMSK: 1723
+PMSL: 102
+PMSU: 346
+PMSW: 13
+PMTH: 194
+PMTI: 1074
+PMUD: 1237
+PMUS: 3478
+PMVF: 841
+PMVM: 2872
+PMVU: 597
+PMWL: 26
+PMWM: 192
+PUAM: 2
+PUCH: 3
+PUCT: 6
+PUDD: 1
+
+
+
+PUFE: 1
+PUFI: 4
+PUIF: 40
+PUII: 2
+PUIM: 7
+PUIV: 12
+PUJF: 3
+PUMH: 5
+PUQA: 1
+PUQV: 1
+PUSS: 23
+PUSZ: 2
+PUVM: 12
+
+Weathering Residuum:
+UREG: 6604
+
+Remove:
+JURA: 29
+WFUB: 5
+WFUY: 1
+WHUB: 1
+WUUB: 1
