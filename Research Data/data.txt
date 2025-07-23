@@ -193,6 +193,39 @@ DEVO: 18
 KRET: 16794
 ORDO: 115
 
+Cretaceous doesn't seem to have nice groups like the others
+
+Carlile Shale:
+KCBH: 6
+KCCD: 2
+KCFP: 1
+KCRL: 39 (MAIN)
+
+Coleraine:
+KCLR: 315 (MAIN)
+
+Dakota Sandstone:
+KDKT: 5 (MAIN)
+KDNB: 8
+KDWB: 13
+
+Greenhorn:
+KGRN: 14 (MAIN)
+
+Ganeros Shale:
+KGRS: 14 (MAIN)
+
+Cretaceous Regolith:
+KREG: 3306 (MAIN)
+
+Split Rock Creek:
+KSRC: 78 (MAIN)
+
+Windrow:
+KWIH: 13
+KWND: 294 (MAIN)
+KWOS: 1
+
 Upper Cedar (Cedar Valley Group):
 DCVU: 898 (MAIN)
 
@@ -362,37 +395,6 @@ CMFL: 13
 CMRC: 22
 CMSH: 56
 CMTS: 6262 (MAIN)
-
-Carlile Shale:
-KCBH: 6
-KCCD: 2
-KCFP: 1
-KCRL: 39 (MAIN)
-
-Coleraine:
-KCLR: 315 (MAIN)
-
-Dakota Sandstone:
-KDKT: 5 (MAIN)
-KDNB: 8
-KDWB: 13
-
-Greenhorn:
-KGRN: 14 (MAIN)
-
-Ganeros Shale:
-KGRS: 14 (MAIN)
-
-Cretaceous Regolith:
-KREG: 3306 (MAIN)
-
-Split Rock Creek:
-KSRC: 78 (MAIN)
-
-Windrow:
-KWIH: 13
-KWND: 294 (MAIN)
-KWOS: 1
 
 Hinckley Sandstone:
 PMHN: 2963 (MAIN)
