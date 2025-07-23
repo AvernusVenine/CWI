@@ -1,3 +1,5 @@
+https://conservancy.umn.edu/server/api/core/bitstreams/29bc663a-c58c-41e9-b91b-d9b5523b7ce3/content
+
 age_classifier = LGBMClassifier(
         n_estimators=200,
         verbose=-1,
@@ -191,9 +193,134 @@ DEVO: 18
 KRET: 16794
 ORDO: 115
 
-Eau Claire:
-CECR: 5910
-CEMS: 1223
+Upper Cedar (Cedar Valley Group):
+DCVU: 898 (MAIN)
+
+Lithograph City Formation (Upper Cedar):
+DLGH: 31 (MAIN)
+
+Coralville Formation (Upper Cedar):
+DCRL: 7 (MAIN)
+DCUM: 2
+DCGZ: 15
+DCIC: 9
+DCLC: 1
+
+Cedar Valley Group:
+DCVA: 661 (MAIN)
+
+Little Cedar Formation (Cedar Valley Group):
+DLBA: 23
+DLCB: 7
+DLCD: 2 (MAIN)
+DLCH: 23
+DLHE: 18
+
+Lower Cedar (Cedar Valley Group):
+DCLP: 334
+DCLS: 135
+DCOG: 27
+DCOM: 98
+DCVL: 1160 (MAIN)
+
+Wapsipinicon Group:
+DWAP: 45 (MAIN)
+DWPR: 355
+
+Pinicon Ridge (Wapsipinicon Group):
+DPOG: 10
+DPOM: 12
+
+Spillville (Wapsipinicon Group):
+DSOG: 73
+DSOM: 194
+DSPL: 996 (Main)
+
+Maquoketa Formation:
+OMAQ: 1096
+OMQD: 228
+OMQG: 234
+
+Galena Group:
+OGAP: 22
+OGDP: 69
+OGGP: 4 (MAIN)
+OGPD: 45
+
+Dubuque (Galena Group):
+ODGL: 513
+ODUB: 543 (MAIN)
+
+Stewartville (Galena Group):
+OGSC: 1836
+OGSD: 81
+OGVP: 555
+OGSV: 1313 (MAIN)
+
+Prosser (Galena Group):
+OGPC: 1035
+OGPR: 1052
+
+Cummingsville Formation (Galena Group):
+OGCM: 2296 (MAIN)
+OGCD: 686
+
+Decorah Shale (Galena Group):
+ODCA: 3
+ODCR: 4563 (MAIN)
+ODPG: 144
+ODPL: 181
+ODSP: 3
+
+Platteville Formation:
+OPGW: 1958
+OPHF: 16
+OPMA: 14
+OPMI: 25
+OPPE: 11
+OPSP: 198
+OPVJ: 2
+OPVL: 8654 (MAIN)
+
+Glenwood Formation:
+OGSP: 259
+OGWD: 6325 (MAIN)
+
+St Peter Sandstone:
+OSCJ: 51
+OSCS: 1
+OSPC: 1007
+OSPE: 12
+OSTN: 13
+OSTP: 25995 (MAIN)
+
+Prairie Du Chien Group:
+OPCJ: 589
+OPCM: 1
+OPCS: 18
+OPCT: 25
+OPDC: 41052 (MAIN)
+OPOD: 2712
+OPSH: 2001
+
+Shakopee (Prairie Du Chien Group):
+OPNR: 750
+OPWR: 601
+
+Oneota Dolomite (Prairie Du Chien Group):
+OOCV: 26
+OOHC: 11
+
+Red River Formation (Undiff Ordovician):
+ORRV: 27
+
+Stoney Mountain Formation (Absolutely No idea, Undiff Ordovician):
+OSTM: 1 (MAIN)
+
+Winnipeg Formation (Undiff Ordovician):
+OWBI: 1
+OWIB: 1
+OWIN: 54 (MAIN)
 
 Jordan Sandstone:
 CJDN: 23275 (MAIN)
@@ -203,23 +330,12 @@ CJMS: 1
 CJSL: 1175
 CJTC: 269
 
-Lone Rock (PART OF TUNNEL CITY?):
-CLBK: 9
-CLRE: 21
-CLTM: 0
-
-Mt. Simon
-CMFL: 13
-CMRC: 22
-CMSH: 56
-CMTS: 6262 (MAIN)
-
-St. Lawrence:
+St. Lawrence Sandstone:
 CSLT: 5258
 CSLW: 3
 CSTL: 10299 (MAIN)
 
-Tunnel City:
+Tunnel City Group:
 CTCG: 19239 (MAIN)
 CTCM: 8
 CTCW: 1614
@@ -227,53 +343,25 @@ CTLR: 6178
 CTCE: 59
 CTMZ: 132
 
-Wonewoc:
+Lone Rock (Tunnel City Group):
+CLBK: 9
+CLRE: 21
+CLTM: 0
+
+Wonewoc Sandstone:
 CWMS: 60
 CWOC: 7573 (MAIN)
 CWEC: 721
 
-Coralville Formation:
-DCRL: 7 (MAIN)
-DCUM: 2
-DCGZ: 15
-DCIC: 9
-DCLC: 1
+Eau Claire Formation:
+CECR: 5910
+CEMS: 1223
 
-Lower Cedar:
-DCLP: 334
-DCLS: 135
-DCOG: 27
-DCOM: 98
-DCVL: 1160 (MAIN)
-
-Upper Cedar:
-DCVU: 898 (MAIN)
-
-Cedar Valley Group:
-DCVA: 661 (MAIN)
-
-Little Cedar Formation:
-DLBA: 23
-DLCB: 7
-DLCD: 2 (MAIN)
-DLCH: 23
-DLHE: 18
-
-Lithograph City Formation:
-DLGH: 31 (MAIN)
-
-Pinicon Ridge:
-DPOG: 10
-DPOM: 12
-
-Spillville:
-DSOG: 73
-DSOM: 194
-DSPL: 996 (Main)
-
-Wapsipinicon Group
-DWAP: 45 (MAIN)
-DWPR: 355
+Mt. Simon Sandstone:
+CMFL: 13
+CMRC: 22
+CMSH: 56
+CMTS: 6262 (MAIN)
 
 Carlile Shale:
 KCBH: 6
@@ -306,89 +394,20 @@ KWIH: 13
 KWND: 294 (MAIN)
 KWOS: 1
 
-Decorah Shale:
-ODCA: 3
-ODCR: 4563 (MAIN)
-ODPG: 144
-ODPL: 181
-ODSP: 3
-OGCD: 686
+Hinckley Sandstone:
+PMHN: 2963 (MAIN)
+PMHF: 80
 
-Dubuque:
-ODGL: 513
-ODUB: 543 (MAIN)
+Fond Du Lac Formation:
+PMFL: 2025 (MAIN)
 
-Galena:
-OGAP: 22
-OGCM: 2296 (Main)
-OGDP: 69
-OGGP: 4 (Main? says group)
-OGPD: 45
-OGPR: 1052
-OGSV: 1313
+Solor Church Formation:
+PMSC: 116 (MAIN)
 
-Prosser:
-OGPC: 1035
+BEYOND THIS IT IS NOT WELL LAYERED
 
-Stewartville:
-OGSC: 1836
-OGSD: 81
-OGVP: 555
-
-Glenwood:
-OGSP: 259
-OGWD: 6325 (MAIN)
-
-Maquoketa Formation:
-OMAQ: 1096
-OMQD: 228
-OMQG: 234
-
-Oneota:
-OOCV: 26
-OOHC: 11
-
-Prairie Du Chien Group:
-OPCJ: 589
-OPCM: 1
-OPCS: 18
-OPCT: 25
-OPDC: 41052 (MAIN)
-OPOD: 2712
-OPSH: 2001
-
-Platteville:
-OPGW: 1958
-OPHF: 16
-OPMA: 14
-OPMI: 25
-OPPE: 11
-OPSP: 198
-OPVJ: 2
-OPVL: 8654 (MAIN)
-
-Shakopee:
-OPNR: 750
-OPWR: 601
-
-Red River Formation:
-ORRV: 27
-
-St Peter:
-OSCJ: 51
-OSCS: 1
-OSPC: 1007
-OSPE: 12
-OSTN: 13
-OSTP: 25995 (MAIN)
-
-Stoney Mountain Formation:
-OSTM: 1 (MAIN)
-
-Winnipeg Formation:
-OWBI: 1
-OWIB: 1
-OWIN: 54 (MAIN)
+Soudan Iron Formation:
+PAES: 198 (MAIN)
 
 PAAI: 124
 PAAM: 130
@@ -403,7 +422,6 @@ PACH: 55
 PADL: 2
 PADS: 7
 PAEF: 11
-PAES: 198
 PAEY: 954
 PAFE: 214
 PAFI: 441
@@ -566,11 +584,8 @@ PMDS: 69
 PMEP: 64
 PMES: 162
 PMFI: 52
-PMFL: 2025
 PMGI: 73
 PMGL: 44
-PMHF: 80
-PMHN: 2963
 PMHR: 189
 PMIF: 13
 PMII: 62
@@ -595,7 +610,6 @@ PMOI: 268
 PMPA: 2979
 PMPR: 1
 PMRC: 29
-PMSC: 116
 PMSD: 24
 PMSI: 6
 PMSK: 1723
