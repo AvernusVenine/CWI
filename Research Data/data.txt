@@ -187,6 +187,9 @@ Bedrock Catagories:
 Undifferentiated:
 CAMB: 210
 PUDF: 1857
+DEVO: 18
+KRET: 16794
+ORDO: 115
 
 Eau Claire:
 CECR: 5910
@@ -243,93 +246,150 @@ DCOG: 27
 DCOM: 98
 DCVL: 1160 (MAIN)
 
-DCVA: 661
-DCVU: 898
-DEVO: 18
+Upper Cedar:
+DCVU: 898 (MAIN)
+
+Cedar Valley Group:
+DCVA: 661 (MAIN)
+
+Little Cedar Formation:
 DLBA: 23
 DLCB: 7
-DLCD: 2
+DLCD: 2 (MAIN)
 DLCH: 23
-DLGH: 31
 DLHE: 18
+
+Lithograph City Formation:
+DLGH: 31 (MAIN)
+
+Pinicon Ridge:
 DPOG: 10
 DPOM: 12
+
+Spillville:
 DSOG: 73
 DSOM: 194
-DSPL: 996
-DWAP: 45
+DSPL: 996 (Main)
+
+Wapsipinicon Group
+DWAP: 45 (MAIN)
 DWPR: 355
+
+Carlile Shale:
 KCBH: 6
 KCCD: 2
 KCFP: 1
-KCLR: 315
-KCRL: 39
-KDKT: 5
+KCRL: 39 (MAIN)
+
+Coleraine:
+KCLR: 315 (MAIN)
+
+Dakota Sandstone:
+KDKT: 5 (MAIN)
 KDNB: 8
 KDWB: 13
-KGRN: 14
-KGRS: 14
-KREG: 3306
-KRET: 16794
-KSRC: 78
+
+Greenhorn:
+KGRN: 14 (MAIN)
+
+Ganeros Shale:
+KGRS: 14 (MAIN)
+
+Cretaceous Regolith:
+KREG: 3306 (MAIN)
+
+Split Rock Creek:
+KSRC: 78 (MAIN)
+
+Windrow:
 KWIH: 13
-KWND: 294
-KWOS: 18
+KWND: 294 (MAIN)
+KWOS: 1
+
+Decorah Shale:
 ODCA: 3
-ODCR: 4563
-ODGL: 513
+ODCR: 4563 (MAIN)
 ODPG: 144
 ODPL: 181
 ODSP: 3
-ODUB: 543
-OGAP: 22
 OGCD: 686
-OGCM: 2296
+
+Dubuque:
+ODGL: 513
+ODUB: 543 (MAIN)
+
+Galena:
+OGAP: 22
+OGCM: 2296 (Main)
 OGDP: 69
-OGGP: 4
-OGPC: 1035
+OGGP: 4 (Main? says group)
 OGPD: 45
 OGPR: 1052
+OGSV: 1313
+
+Prosser:
+OGPC: 1035
+
+Stewartville:
 OGSC: 1836
 OGSD: 81
-OGSP: 259
-OGSV: 1313
 OGVP: 555
-OGWD: 6325
+
+Glenwood:
+OGSP: 259
+OGWD: 6325 (MAIN)
+
+Maquoketa Formation:
 OMAQ: 1096
 OMQD: 228
 OMQG: 234
+
+Oneota:
 OOCV: 26
 OOHC: 11
+
+Prairie Du Chien Group:
 OPCJ: 589
 OPCM: 1
 OPCS: 18
 OPCT: 25
-OPDC: 41052
+OPDC: 41052 (MAIN)
+OPOD: 2712
+OPSH: 2001
+
+Platteville:
 OPGW: 1958
 OPHF: 16
 OPMA: 14
 OPMI: 25
-OPNR: 750
-OPOD: 2712
 OPPE: 11
-OPSH: 2001
 OPSP: 198
 OPVJ: 2
-OPVL: 8654
+OPVL: 8654 (MAIN)
+
+Shakopee:
+OPNR: 750
 OPWR: 601
-ORDO: 115
+
+Red River Formation:
 ORRV: 27
+
+St Peter:
 OSCJ: 51
 OSCS: 1
 OSPC: 1007
 OSPE: 12
-OSTM: 1
 OSTN: 13
-OSTP: 25995
+OSTP: 25995 (MAIN)
+
+Stoney Mountain Formation:
+OSTM: 1 (MAIN)
+
+Winnipeg Formation:
 OWBI: 1
 OWIB: 1
-OWIN: 54
+OWIN: 54 (MAIN)
+
 PAAI: 124
 PAAM: 130
 PAAR: 5
@@ -555,9 +615,6 @@ PUAM: 2
 PUCH: 3
 PUCT: 6
 PUDD: 1
-
-
-
 PUFE: 1
 PUFI: 4
 PUIF: 40

@@ -13,7 +13,7 @@ color_map = {'Brown': 'B', 'Gray': 'G', 'Blue': 'G', 'Black': 'K', 'Red': 'R', '
 
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
-pca = joblib.load('trained_models/embedding_pca.joblib')
+pca = joblib.load('trained_models/util/embedding_pca.joblib')
 
 strat_age_model = joblib.load('trained_models/GBT_Age_Model.joblib')
 quat_type_model = joblib.load('trained_models/GBT_Quat_Model.joblib')
