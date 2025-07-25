@@ -242,7 +242,7 @@ DCLC: 1
 Cedar Valley Group:
 DCVA: 661 (MAIN)
 
-Little Cedar Formation (Cedar Valley Group):
+Little Cedar Formation (Lower Cedar):
 DLBA: 23
 DLCB: 7
 DLCD: 2 (MAIN)
@@ -270,7 +270,7 @@ DSOM: 194
 DSPL: 996 (Main)
 
 Maquoketa Formation:
-OMAQ: 1096
+OMAQ: 1096 (MAIN)
 OMQD: 228
 OMQG: 234
 
@@ -333,16 +333,16 @@ OPCM: 1
 OPCS: 18
 OPCT: 25
 OPDC: 41052 (MAIN)
-OPOD: 2712
-OPSH: 2001
 
 Shakopee (Prairie Du Chien Group):
 OPNR: 750
 OPWR: 601
+OPSH: 2001 (MAIN)
 
 Oneota Dolomite (Prairie Du Chien Group):
 OOCV: 26
 OOHC: 11
+OPOD: 2712 (MAIN)
 
 Red River Formation (Undiff Ordovician):
 ORRV: 27
@@ -372,11 +372,13 @@ Tunnel City Group:
 CTCG: 19239 (MAIN)
 CTCM: 8
 CTCW: 1614
-CTLR: 6178
 CTCE: 59
+
+Mazomanie Formation (Tunnel City Group):
 CTMZ: 132
 
 Lone Rock (Tunnel City Group):
+CTLR: 6178
 CLBK: 9
 CLRE: 21
 CLTM: 0
@@ -387,7 +389,7 @@ CWOC: 7573 (MAIN)
 CWEC: 721
 
 Eau Claire Formation:
-CECR: 5910
+CECR: 5910 (MAIN)
 CEMS: 1223
 
 Mt. Simon Sandstone:
@@ -395,6 +397,7 @@ CMFL: 13
 CMRC: 22
 CMSH: 56
 CMTS: 6262 (MAIN)
+
 
 Hinckley Sandstone:
 PMHN: 2963 (MAIN)
@@ -408,9 +411,7 @@ PMSC: 116 (MAIN)
 
 BEYOND THIS IT IS NOT WELL LAYERED
 
-Soudan Iron Formation:
 PAES: 198 (MAIN)
-
 PAAI: 124
 PAAM: 130
 PAAR: 5
@@ -499,6 +500,7 @@ PAVM: 195
 PAVP: 138
 PAWB: 16
 PAWL: 19
+
 PCCR: 1159
 PCMU: 15
 PCRG: 40
@@ -563,7 +565,7 @@ PEWT: 50
 PEWV: 43
 PEYV: 16
 PMAG: 18
-PMBB: 161
+## PMBB: 161
 PMBC: 12
 PMBE: 83
 PMBF: 232
@@ -571,7 +573,7 @@ PMBI: 17
 PMBL: 80
 PMBM: 197
 PMBO: 191
-PMBR: 169
+## PMBR: 169
 PMBS: 33
 PMBT: 2950
 PMCF: 1

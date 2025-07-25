@@ -58,8 +58,8 @@ def fit_smote(X_df : pd.DataFrame, y_df : pd.DataFrame, count : int, label : int
 
     return pd.concat([X_df, X_new], ignore_index=True), pd.concat([y_df, y_new], ignore_index=True)
 
-# Performs PCA on a given dataframe, mainly used for sentence embeddings, and saves it
-def df_pca(df : pd.DataFrame):
+# Performs PCA on a given dataframe of sentence embeddings
+def embed_pca(df : pd.DataFrame):
     pca = PCA(n_components=0.95)
 
     pca_embeddings = pca.fit_transform(df)
@@ -68,6 +68,17 @@ def df_pca(df : pd.DataFrame):
     joblib.dump(pca, 'trained_models/util/embedding_pca.joblib')
 
     return pca_embeddings_df
+
+# Performs pca on a given dataframe of onehot colors
+def color_pca(df : pd.DataFrame):
+    pca = PCA(n_components=.95)
+
+    pca_colors = pca.fit_transform(df)
+    pca_colors_df = pd.DataFrame(pca_colors, columns=[f'pca_color_{i}' for i in range(pca_colors.shape[1])])
+
+    joblib.dump(pca, 'trained_models/util/color_pca.joblib')
+
+    return pca_colors_df
 
 # Scales a given list of columns in a dataframe then saves the Scaler
 def df_scaler(df : pd.DataFrame, cols : list):
@@ -79,11 +90,34 @@ def df_scaler(df : pd.DataFrame, cols : list):
     return df
 
 # Embeds a given column of a DataFrame via MiniLM L6 v2
-def embed_descriptions(df : pd.DataFrame, col : str):
-    embeddings = embedding_model.encode(df[col].tolist(), show_progress_bar=True)
+def embed_descriptions(df : pd.DataFrame):
+    embeddings = embedding_model.encode(df['drllr_desc'].tolist(), show_progress_bar=True)
     embedding_df = pd.DataFrame(embeddings, columns=[f"emb_{i}" for i in range(embeddings.shape[1])])
 
     return embedding_df
+
+# Use to onehot encode the color of a given series
+def one_hot_colors(color):
+    series = pd.Series([0] * len(utils.COLORS), index=utils.COLORS)
+
+    if pd.isna(color):
+        return series
+
+    if color in utils.COLORS:
+        series[color] = 1
+        return series
+
+    color = color.replace('Dk. ', '')
+    color = color.replace('Lt. ', '')
+    color = color.strip()
+
+    color_parts = color.split('/')
+    translated = {utils.COLOR_ABBREV_MAP.get(p.strip()) for p in color_parts if p.strip() in utils.COLOR_ABBREV_MAP}
+
+    for c in translated:
+        series[c] = 1
+
+    return series
 
 # Loads and refines all well layer data
 def load_and_refine_data():
@@ -124,15 +158,18 @@ def load_and_refine_data():
     cwi_layers['age_cat'] = cwi_layers['age'].map(utils.AGE_CATEGORIES)
 
 
-    embeddings = embed_descriptions(cwi_layers, 'drllr_desc')
-    pca_embeddings = df_pca(embeddings)
+    embeddings = embed_descriptions(cwi_layers)
+    pca_embeddings = embed_pca(embeddings)
 
-    layer_features = cwi_layers[['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'age_cat',
+    colors = cwi_layers['color'].apply(one_hot_colors)
+
+    layer_features = cwi_layers[['depth_top', 'depth_bot', 'utme', 'utmn', 'relateid', 'age_cat',
                                  'strat', 'color', 'drllr_desc', 'elevation', 'data_src']]
 
-    features_df = pd.concat([layer_features.reset_index(drop=True), pca_embeddings.reset_index(drop=True)], axis=1)
+    features_df = pd.concat([layer_features.reset_index(drop=True), pca_embeddings.reset_index(drop=True),
+                             colors.reset_index(drop=True)], axis=1)
 
-    features_df = features_df.sort_values(by=['relateid', 'true_depth_top'], ascending=[True, False])
+    features_df = features_df.sort_values(by=['relateid', 'depth_top'], ascending=[True, True])
     features_df['prev_age_cat'] = (
         features_df.groupby('relateid')['age_cat']
         .shift(1)

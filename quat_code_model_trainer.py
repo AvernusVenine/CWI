@@ -41,7 +41,7 @@ def train_age_classifier(features_df : pd.DataFrame):
     weights['data_src'] = np.where(weights['data_src'].isin(utils.TRUSTED_SOURCES), 5, 1)
 
     X_train = X_train.drop(columns=data_refinement)
-    X_test = X_test.drop(columns=['relateid', 'age_cat', 'strat', 'color', 'drllr_desc', 'data_src'])
+    X_test = X_test.drop(columns=utils.AGE_DROP_COLS)
 
     y_test = y_test.squeeze()
     y_train = y_train.squeeze()
@@ -170,6 +170,6 @@ def train_bedrock_classifier(features_df : pd.DataFrame):
 features_df = data_refinement.load_and_refine_data()
 
 train_age_classifier(features_df)
-train_quat_classifier(features_df)
-train_bedrock_classifier(features_df)
+#train_quat_classifier(features_df)
+#train_bedrock_classifier(features_df)
 
