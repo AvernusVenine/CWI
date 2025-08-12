@@ -8,6 +8,7 @@ import data_refinement
 import utils
 import xgboost
 import cupy
+from sklearn.multilabel import MultiLabelClassifier
 
 def train_age_classifier(features_df : pd.DataFrame):
     print("TRAINING AGE CLASSIFIER")
@@ -120,18 +121,18 @@ def train_quat_classifier(features_df : pd.DataFrame):
     print(classification_report(y_test_labels, y_pred_labels, zero_division=0))
 
 #TODO: Try by initially grouping bedrocks based on formation and see accuracy there
-def train_bedrock_classifier(features_df : pd.DataFrame, age : str):
+def train_bedrock_classifier(features_df : pd.DataFrame):
     print("TRAINING BEDROCK CLASSIFIER")
 
-    bedrock_layers = features_df[features_df['strat'].str.startswith(age)]
+    bedrock_layers = features_df[features_df['strat'].str.startswith(utils.BEDROCK_AGES)]
 
     bedrock_layers = data_refinement.condense_precambrian(bedrock_layers, utils.MIN_LABEL_COUNT)
-    bedrock_layers = data_refinement.condense_other_bedrock(bedrock_layers, utils.MIN_LABEL_COUNT)
+    bedrock_layers = data_refinement.condense_other_bedrock(bedrock_layers)
 
     utils.load_bedrock_categories(bedrock_layers)
 
     X = bedrock_layers
-    y = bedrock_layers['strat'].map(utils.BEDROCK_CATEGORIES)
+    y = data_refinement.bedrock_to_labels(bedrock_layers)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
@@ -154,14 +155,17 @@ def train_bedrock_classifier(features_df : pd.DataFrame, age : str):
 
         tree_method='hist'
     )
-    bedrock_classifier.fit(X_train, y_train, sample_weight=weights)
 
-    joblib.dump(bedrock_classifier, f'trained_models/{age}_bedrock_model.joblib')
+    model = MultiLabelClassifier(bedrock_classifier)
+    model.fit(X_train, y_train, sample_weight=weights)
+
+    joblib.dump(model, f'trained_models/bedrock_model.joblib')
 
     print("EVALUATING BEDROCK CLASSIFIER")
 
-    y_pred = bedrock_classifier.predict(X_test)
+    y_pred = model.predict(X_test)
 
+    #TODO: Need to make this reflect changes from a single classifier to a multilabel model
     y_test_labels = pd.Series(y_test).map(utils.INV_BEDROCK_CATEGORIES)
     y_pred_labels = pd.Series(y_pred).map(utils.INV_BEDROCK_CATEGORIES)
 
@@ -170,12 +174,14 @@ def train_bedrock_classifier(features_df : pd.DataFrame, age : str):
 
     data_refinement.create_confusion_matrix(y_test, y_pred, list(utils.INV_BEDROCK_CATEGORIES.values()))
 
-def train_bedrock_multi_classifier(df : pd.DataFrame, age : str):
-    print("TRAINING BEDROCK MULTICLASS CLASSIFIER")
+def train_precambrian_classifer(df : pd.DataFrame):
+    print("TRAINING PRECAMBRIAN CLASSIFIER")
 
     bedrock_layers = features_df[features_df['strat'].str.startswith(age)]
 
-    print("EVALUATING BEDROCK MULTICLASS CLASSIFIER")
+    print("EVALUATING PRECAMBRIAN CLASSIFIER")
+
+
 
     pass
 
@@ -184,5 +190,5 @@ features_df = data_refinement.load_data()
 
 #train_age_classifier(features_df)
 #train_quat_classifier(features_df)
-train_bedrock_classifier(features_df, 'C')
+train_bedrock_classifier(features_df)
 

@@ -302,28 +302,17 @@ def condense_precambrian(df : pd.DataFrame, min_count : int):
     df.loc[df[Field.STRAT].isin(rare_strats), Field.STRAT] = 'PUDF'
     return df
 
-# Condenses other underrepresented classes into their respective buckets for human interpretation
-def condense_other_bedrock(df : pd.DataFrame, min_count : int):
-    utils.load_bedrock_categories(df)
+# Returns a list of labels each bedrock code is a part of
+def bedrock_to_labels(df : pd.DataFrame):
+    labels = list(set.union(*utils.BEDROCK_SET_MAP.values()))
+    labels_df = pd.DataFrame(columns=labels)
 
-    condensed_strats = []
-    filtered_df = df[df[Field.STRAT].isin(utils.BEDROCK_PARENT_MAP)]
+    for label in labels:
+        labels_df[label] = df[Field.STRAT].apply(lambda s : label in utils.BEDROCK_SET_MAP[s])
 
-    while True:
-        strat_counts = filtered_df[Field.STRAT].value_counts()
+    return labels_df
 
-        rare_strats = strat_counts[strat_counts < min_count]
-
-        if rare_strats.empty:
-            break
-
-        rarest = rare_strats.idxmin()
-
-        if rarest in condensed_strats:
-            filtered_df = filtered_df[filtered_df[Field.STRAT] != rarest]
-            continue
-
-        df.loc[df[Field.STRAT] == rarest, Field.STRAT] = utils.BEDROCK_PARENT_MAP[rarest]
-        condensed_strats.append(rarest)
-
+# Condenses other underrepresented classes into their closest relative (usually direct parent)
+def condense_other_bedrock(df : pd.DataFrame):
+    df[Field.STRAT] = df[Field.STRAT].map(utils.BEDROCK_UNDERREP_MAP).fillna(df[Field.STRAT])
     return df

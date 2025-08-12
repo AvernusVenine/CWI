@@ -50,6 +50,7 @@ class Bedrock:
 
     FOND_DU_LAC = 'PMFL'
     HINCKLEY = 'PMHN'
+    SOLOR_CHURCH = 'PMSC'
 
 class Field:
     UTME = 'utme'
@@ -206,7 +207,7 @@ BEDROCK_EXCEPTIONS = [
 ]
 
 #TODO: This is where underrepresented classes are mapped to their parents!
-BEDROCK_PARENT_MAP_TEMP = {
+BEDROCK_UNDERREP_MAP = {
     'KCBH' : Bedrock.CARLILE,
     'KCCD' : Bedrock.CARLILE,
     'KCFP' : Bedrock.CARLILE,
@@ -391,6 +392,8 @@ BEDROCK_SET_MAP = {
     'PMHF'  : frozenset([Bedrock.HINCKLEY, Bedrock.FOND_DU_LAC]),
 
     'PMFL' : frozenset([Bedrock.FOND_DU_LAC]),
+
+    'PMSC' : frozenset([Bedrock.SOLOR_CHURCH]),
 }
 
 BEDROCK_PARENT_MAP = {
