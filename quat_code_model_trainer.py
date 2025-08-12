@@ -4,9 +4,10 @@ import joblib
 from sklearn.model_selection import train_test_split
 from lightgbm import LGBMClassifier
 from sklearn.metrics import accuracy_score, classification_report
-
 import data_refinement
 import utils
+import xgboost
+import cupy
 
 def train_age_classifier(features_df : pd.DataFrame):
     print("TRAINING AGE CLASSIFIER")
@@ -16,10 +17,10 @@ def train_age_classifier(features_df : pd.DataFrame):
     X_train, X_test, y_train, y_test = train_test_split(
         features_df, y,
         test_size=0.2,
-        random_state=127,
+        random_state=127
     )
 
-    smote_cols = ['utme', 'utmn', 'elevation', 'true_depth_top', 'true_depth_bot']
+    smote_cols = ['utme', 'utmn', 'elevation', 'depth_top', 'depth_bot']
 
     X_train, y_train = data_refinement.fit_smote(X_train, y_train, 10000, utils.AGE_CATEGORIES['X'], 'age_cat',
                                  127, smote_cols)
@@ -36,28 +37,30 @@ def train_age_classifier(features_df : pd.DataFrame):
 
     y_train = X_train[['age_cat']].copy()
 
-    weights = X_train[['data_src']].copy()
-    weights['data_src'] = weights['data_src'].str.strip()
-    weights['data_src'] = np.where(weights['data_src'].isin(utils.TRUSTED_SOURCES), 5, 1)
+    weights = X_train['weight']
 
-    X_train = X_train.drop(columns=data_refinement)
-    X_test = X_test.drop(columns=utils.AGE_DROP_COLS)
+    X_train = X_train.drop(columns=utils.AGE_DROP_COLS + utils.GENERAL_DROP_COLS)
+    X_test = X_test.drop(columns=utils.AGE_DROP_COLS + utils.GENERAL_DROP_COLS)
 
     y_test = y_test.squeeze()
     y_train = y_train.squeeze()
 
-    age_classifier = LGBMClassifier(
-        n_estimators=300,
-        verbose=-1,
-        boosting_type='dart',
-        device='gpu',
-        class_weight='balanced',
-        min_child_samples=25,
-        min_data_in_leaf=25,
-    )
-    age_classifier.fit(X_train, y_train, sample_weight=weights['data_src'])
+    age_classifier = xgboost.XGBClassifier(
+        booster='dart',
+        n_estimators=1000,
+        verbosity=0,
+        device='cuda',
 
-    joblib.dump(age_classifier, 'trained_models/DART_Age_Model.joblib')
+        rate_drop=.1,
+        normalize_type='forest',
+        sample_type='weighted',
+
+        tree_method='hist'
+    )
+
+    age_classifier.fit(X_train, y_train, sample_weight=weights)
+
+    joblib.dump(age_classifier, f'trained_models/DART_Age_Model_2.joblib')
 
     print("EVALUATING AGE CLASSIFIER")
 
@@ -77,99 +80,109 @@ def train_quat_classifier(features_df : pd.DataFrame):
 
     quat_type = quat_layers['strat'].str[1]
     quat_type = quat_type.str.replace('R', 'U', regex=True)
+    quat_type = quat_type.map(utils.QUAT_CATEGORIES)
 
     y = quat_type
 
     X_train, X_test, y_train, y_test = train_test_split(quat_layers, y, test_size=0.2, random_state=127)
 
-    weights = X_train[['data_src']].copy()
-    weights['data_src'] = weights['data_src'].str.strip()
-    weights['data_src'] = np.where(weights['data_src'].isin(utils.TRUSTED_SOURCES), 5, 1)
+    weights = X_train['weight']
 
-    X_train = X_train.drop(columns=['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'strat',
-                                  'color', 'drllr_desc', 'elevation', 'data_src'])
-    X_test = X_test.drop(columns=['true_depth_top', 'true_depth_bot', 'utme', 'utmn', 'relateid', 'strat',
-                                  'color', 'drllr_desc', 'elevation', 'data_src'])
+    X_train = X_train.drop(columns=utils.QUAT_DROP_COLS + utils.GENERAL_DROP_COLS)
+    X_test = X_test.drop(columns=utils.QUAT_DROP_COLS + utils.GENERAL_DROP_COLS)
 
-    quat_classifier = LGBMClassifier(
-        n_estimators=300,
-        verbose=-1,
-        boosting_type='dart',
-        device='gpu',
-        class_weight='balanced',
-        min_child_samples=25,
-        min_data_in_leaf=25,
+    quat_classifier = xgboost.XGBClassifier(
+        booster='dart',
+        n_estimators=200,
+        verbosity=0,
+        device='cuda',
+
+        rate_drop=.15,
+        normalize_type='forest',
+        sample_type='weighted',
+
+        tree_method='hist'
     )
-    quat_classifier.fit(X_train, y_train)
 
-    joblib.dump(quat_classifier, 'trained_models/GBT_Quat_Model.joblib')
+    quat_classifier.fit(X_train, y_train, sample_weight=weights)
+
+
+    joblib.dump(quat_classifier, 'trained_models/XGB_Quat_Model.joblib')
 
     print("EVALUATING QUAT TYPE CLASSIFIER")
 
     y_pred = quat_classifier.predict(X_test)
 
-    y_test_labels = utils.QUAT_CATEGORIES[y_test.values]
-    y_pred_labels = utils.QUAT_CATEGORIES[y_pred]
+    y_test_labels = pd.Series(y_test).map(utils.INV_QUAT_CATEGORIES)
+    y_pred_labels = pd.Series(y_pred).map(utils.INV_QUAT_CATEGORIES)
 
     print("Accuracy:", accuracy_score(y_test, y_pred))
     print(classification_report(y_test_labels, y_pred_labels, zero_division=0))
 
 #TODO: Try by initially grouping bedrocks based on formation and see accuracy there
-
-def train_bedrock_classifier(features_df : pd.DataFrame):
+def train_bedrock_classifier(features_df : pd.DataFrame, age : str):
     print("TRAINING BEDROCK CLASSIFIER")
 
-    bedrock_layers = features_df[features_df['strat'].str.startswith(utils.BEDROCK_AGES)]
+    bedrock_layers = features_df[features_df['strat'].str.startswith(age)]
 
-    # TODO: Replace this with BEDROCK_CATEGORIES in utils
-    bedrock_cat = bedrock_layers['strat'].astype('category')
-    bedrock = bedrock_cat.cat.codes
-    joblib.dump(bedrock_cat.cat.categories, 'trained_models/bedrock_categories.joblib')
+    bedrock_layers = data_refinement.condense_precambrian(bedrock_layers, utils.MIN_LABEL_COUNT)
+    bedrock_layers = data_refinement.condense_other_bedrock(bedrock_layers, utils.MIN_LABEL_COUNT)
 
-    category_counts = bedrock_cat.value_counts().sort_index()
-
-    for category, count in zip(bedrock_cat.cat.categories, category_counts):
-        print(f"{category}: {count}")
+    utils.load_bedrock_categories(bedrock_layers)
 
     X = bedrock_layers
-    y = bedrock
+    y = bedrock_layers['strat'].map(utils.BEDROCK_CATEGORIES)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=127)
 
-    weights = X_train[['data_src']].copy()
-    weights['data_src'] = weights['data_src'].str.strip()
-    weights['data_src'] = np.where(weights['data_src'].isin(utils.TRUSTED_SOURCES), 5, 1)
+    weights = X_train['weight']
 
-    X_train = X_train.drop(columns=['relateid', 'strat', 'color', 'drllr_desc'])
-    X_test = X_test.drop(columns=['relateid', 'strat', 'color', 'drllr_desc'])
+    X_train = X_train.drop(columns=utils.BEDROCK_DROP_COLS + utils.GENERAL_DROP_COLS)
+    X_test = X_test.drop(columns=utils.BEDROCK_DROP_COLS + utils.GENERAL_DROP_COLS)
 
-    bedrock_classifier = LGBMClassifier(
-        n_estimators=300,
-        verbose=-1,
-        boosting_type='dart',
-        device='gpu',
-        class_weight='balanced',
-        min_child_samples=25,
-        min_data_in_leaf=25,
+    X_train = cupy.array(X_train)
+    X_test = cupy.array(X_test)
+
+    bedrock_classifier = xgboost.XGBClassifier(
+        booster='dart',
+        n_estimators=1000,
+        device='cuda',
+
+        rate_drop=.1,
+        normalize_type='forest',
+        sample_type='weighted',
+
+        tree_method='hist'
     )
-    bedrock_classifier.fit(X_train, y_train)
+    bedrock_classifier.fit(X_train, y_train, sample_weight=weights)
 
-    joblib.dump(bedrock_classifier, 'trained_models/GBT_Bedrock_Model.joblib')
+    joblib.dump(bedrock_classifier, f'trained_models/{age}_bedrock_model.joblib')
 
     print("EVALUATING BEDROCK CLASSIFIER")
 
     y_pred = bedrock_classifier.predict(X_test)
 
-    y_test_labels = bedrock_cat.cat.categories[y_test.values]
-    y_pred_labels = bedrock_cat.cat.categories[y_pred]
+    y_test_labels = pd.Series(y_test).map(utils.INV_BEDROCK_CATEGORIES)
+    y_pred_labels = pd.Series(y_pred).map(utils.INV_BEDROCK_CATEGORIES)
 
     print("Accuracy:", accuracy_score(y_test, y_pred))
     print(classification_report(y_test_labels, y_pred_labels, zero_division=0))
 
-# Can replace with just load_data() to save time if refinement isn't needed
-features_df = data_refinement.load_and_refine_data()
+    data_refinement.create_confusion_matrix(y_test, y_pred, list(utils.INV_BEDROCK_CATEGORIES.values()))
 
-train_age_classifier(features_df)
+def train_bedrock_multi_classifier(df : pd.DataFrame, age : str):
+    print("TRAINING BEDROCK MULTICLASS CLASSIFIER")
+
+    bedrock_layers = features_df[features_df['strat'].str.startswith(age)]
+
+    print("EVALUATING BEDROCK MULTICLASS CLASSIFIER")
+
+    pass
+
+# Can replace with just load_data() to save time if refinement isn't needed
+features_df = data_refinement.load_data()
+
+#train_age_classifier(features_df)
 #train_quat_classifier(features_df)
-#train_bedrock_classifier(features_df)
+train_bedrock_classifier(features_df, 'C')
 

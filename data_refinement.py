@@ -1,23 +1,24 @@
 import os
-import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
 import joblib
-from sklearn.model_selection import train_test_split
-from lightgbm import LGBMClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.preprocessing import StandardScaler
-from imblearn.over_sampling import SMOTE
 import seaborn as sns
 import random
+import geopandas as gpd
+from shapely.geometry import Point
 
 import utils
+from utils import Field
 
 cwi_well_data_path = 'cwi_data/cwi5.csv'
 cwi_layer_data_path = 'cwi_data/c5st.csv'
-feature_data_path = 'compiled_data/features_df.csv'
+feature_data_path = 'compiled_data/data.parquet'
+
+depth_to_bedrock_path = 'map_data/depth_to_bedrock_2020.npa'
 
 pca = joblib.load('trained_models/util/embedding_pca.joblib') if os.path.exists(
     'trained_models/util/embedding_pca.joblib') else None
@@ -91,7 +92,7 @@ def df_scaler(df : pd.DataFrame, cols : list):
 
 # Embeds a given column of a DataFrame via MiniLM L6 v2
 def embed_descriptions(df : pd.DataFrame):
-    embeddings = embedding_model.encode(df['drllr_desc'].tolist(), show_progress_bar=True)
+    embeddings = embedding_model.encode(df[Field.DRILLER_DESCRIPTION].tolist(), show_progress_bar=True)
     embedding_df = pd.DataFrame(embeddings, columns=[f"emb_{i}" for i in range(embeddings.shape[1])])
 
     return embedding_df
@@ -119,63 +120,148 @@ def one_hot_colors(color):
 
     return series
 
+def calculate_weights(df : pd.DataFrame):
+
+    for index, row in df.iterrows():
+
+        cuttings = True if df.at[index, Field.CUTTINGS] == 'Y' else False
+        core = True if df.at[index, Field.CORE] == 'Y' else False
+
+        if cuttings and core:
+            df.at[index, Field.WEIGHT] = 10
+        if cuttings or core:
+            df.at[index, Field.WEIGHT] = 4
+        else:
+            df.at[index, Field.WEIGHT] = 1
+
+    return df
+
+def recalculate_weights(df : pd.DataFrame):
+
+    df[Field.WEIGHT] = df[Field.WEIGHT].replace({
+        1 : .5,
+        4 : 2,
+        10 : 5
+    })
+
+    return df
+
+def find_depth_to_bedrock(df : pd.DataFrame):
+    np_array = joblib.load(depth_to_bedrock_path)
+
+    x_origin = 189750
+    y_origin = 5472480
+    cell_size = 90
+
+    x_shifted = ((df[Field.UTME].astype(int) - x_origin) // cell_size).astype(int)
+    y_shifted = ((y_origin - df[Field.UTMN].astype(int)) // cell_size).astype(int)
+
+    depths = np_array[y_shifted.to_numpy(), x_shifted.to_numpy()]
+    df[Field.DEPTH_TO_BEDROCK] = depths
+
+    df[Field.TOP_DEPTH_TO_BEDROCK] = depths - df[Field.DEPTH_TOP]
+    df[Field.BOT_DEPTH_TO_BEDROCK] = depths - df[Field.DEPTH_BOT]
+
+    return df
+
+# Finds the first bedrock layers beneath a given dataframe of wells
+def find_first_bedrock_age(df : pd.DataFrame):
+    for path in utils.SHAPEFILE_PATHS:
+        full_path = f'map_data/s21_files_only/{path}.shp'
+
+        gdf = gpd.read_file(full_path)
+
+        for index, row in df.iterrows():
+            point = Point(row[Field.UTME], row[Field.UTMN])
+            intersection = gdf[gdf.geometry.contains(point)]
+
+            if intersection.empty:
+                continue
+
+            if path == 'kc_pg':
+                layer = intersection.iloc[0]['MAP_LABEL']
+            else:
+                layer = intersection.iloc[0]['MAPLABEL']
+
+
+            if layer is not None and layer.startswith(('A', 'M', 'P')):
+                layer = layer[0]
+
+            age = utils.FIRST_BEDROCK_CATEGORIES.get(layer, -1)
+
+            df.at[index, Field.FIRST_BEDROCK_CATEGORY] = age
+
+    return df
+
 # Loads and refines all well layer data
 def load_and_refine_data():
+    pd.set_option('future.no_silent_downcasting', True)
+
     cwi_wells = pd.read_csv(cwi_well_data_path, low_memory=False, on_bad_lines='skip')
     cwi_layers = pd.read_csv(cwi_layer_data_path, low_memory=False, on_bad_lines='skip')
 
-    cwi_wells = cwi_wells.dropna(subset=['elevation', 'utmn', 'utme'])
+    cwi_wells = cwi_wells.dropna(subset=[Field.ELEVATION, Field.UTMN, Field.UTME])
+
+    cwi_wells[Field.CUTTINGS] = cwi_wells[Field.CUTTINGS].replace({'Y': 1, None: 0})
+    cwi_wells[Field.CORE] = cwi_wells[Field.CORE].replace({'Y' : 1, None : 0})
 
     cwi_layers = cwi_layers.drop(
         columns=['objectid', 'c5st_seq_no', 'wellid', 'concat', 'stratcode_gen', 'stratcode_detail'])
 
-    cwi_layers = cwi_layers.dropna(subset=['strat'])
-    cwi_layers.loc[cwi_layers['depth_bot'].isna(), 'depth_bot'] = cwi_layers['depth_top']
+    cwi_layers = cwi_layers.dropna(subset=[Field.STRAT])
+    cwi_layers.loc[cwi_layers[Field.DEPTH_BOT].isna(), Field.DEPTH_BOT] = cwi_layers[Field.DEPTH_TOP]
     cwi_layers = cwi_layers.fillna(value={
-        'color': 'UNKNOWN',
-        'hardness': 'MEDIUM',
-        'drllr_desc': ''
+        Field.COLOR: 'UNKNOWN',
+        Field.DRILLER_DESCRIPTION: ''
     })
 
     # Replace certain faux 'ages' with their true meaning for easier interpretation
-    cwi_layers['strat'] = cwi_layers['strat'].replace({
+    cwi_layers[Field.STRAT] = cwi_layers[Field.STRAT].replace({
         'RMMF': 'FILL',
         'PITT': 'X',
         'PVMT': 'Y'
     })
-    cwi_layers['age'] = cwi_layers['strat'].str[0]
+    cwi_layers[Field.AGE] = cwi_layers[Field.STRAT].str[0]
 
     # Put all underrepresented ages into one Bucket for human interpretation
-    cwi_layers['age'] = cwi_layers['age'].str.replace(r'^[WJBNI]', 'Z', regex=True)
+    cwi_layers[Field.AGE] = cwi_layers[Field.AGE].str.replace(r'^[WJBNI]', 'Z', regex=True)
 
-    cwi_layers['elevation'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['elevation'])
-    cwi_layers['utme'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['utme'])
-    cwi_layers['utmn'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['utmn'])
-    cwi_layers['data_src'] = cwi_layers['relateid'].map(cwi_wells.set_index('relateid')['data_src'])
+    cwi_layers[Field.ELEVATION] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.ELEVATION])
+    cwi_layers[Field.UTME] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.UTME])
+    cwi_layers[Field.UTMN] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.UTMN])
+    cwi_layers[Field.DATA_SOURCE] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.DATA_SOURCE])
+    cwi_layers[Field.CORE] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.CORE])
+    cwi_layers[Field.CUTTINGS] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.CUTTINGS])
+    cwi_layers[Field.INTERPRETATION_METHOD] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.INTERPRETATION_METHOD])
 
-    cwi_layers = cwi_layers.dropna(subset=['utme', 'utmn', 'elevation'])
+    cwi_layers = cwi_layers.dropna(subset=[Field.UTME, Field.UTMN, Field.ELEVATION])
 
-    cwi_layers['age_cat'] = cwi_layers['age'].map(utils.AGE_CATEGORIES)
+    cwi_layers[Field.AGE_CATEGORY] = cwi_layers[Field.AGE].map(utils.AGE_CATEGORIES)
 
+    cwi_wells = find_first_bedrock_age(cwi_wells)
+    cwi_layers[Field.FIRST_BEDROCK_CATEGORY] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.FIRST_BEDROCK_CATEGORY])
+
+    cwi_wells = calculate_weights(cwi_wells)
+    cwi_layers[Field.WEIGHT] = cwi_layers[Field.RELATEID].map(cwi_wells.set_index(Field.RELATEID)[Field.WEIGHT])
 
     embeddings = embed_descriptions(cwi_layers)
     pca_embeddings = embed_pca(embeddings)
 
-    colors = cwi_layers['color'].apply(one_hot_colors)
+    # All except for depth_to_bdrk, age_category and previous_age_category
+    layer_features = cwi_layers[utils.LAYER_FEATURE_COLS]
 
-    layer_features = cwi_layers[['depth_top', 'depth_bot', 'utme', 'utmn', 'relateid', 'age_cat',
-                                 'strat', 'color', 'drllr_desc', 'elevation', 'data_src']]
+    features_df = pd.concat([layer_features.reset_index(drop=True), pca_embeddings.reset_index(drop=True)], axis=1)
 
-    features_df = pd.concat([layer_features.reset_index(drop=True), pca_embeddings.reset_index(drop=True),
-                             colors.reset_index(drop=True)], axis=1)
-
-    features_df = features_df.sort_values(by=['relateid', 'depth_top'], ascending=[True, True])
-    features_df['prev_age_cat'] = (
-        features_df.groupby('relateid')['age_cat']
+    features_df = features_df.sort_values(by=[Field.RELATEID, Field.DEPTH_TOP], ascending=[True, True])
+    features_df[Field.PREVIOUS_AGE_CATEGORY] = (
+        features_df.groupby(Field.RELATEID)[Field.AGE_CATEGORY]
         .shift(1)
         .fillna(-1)
         .astype(int)
     )
+
+    features_df = find_depth_to_bedrock(features_df)
+    #features_df = find_first_bedrock_age(features_df)
 
     features_df = df_scaler(features_df, utils.SCALED_COLUMNS)
 
@@ -184,7 +270,7 @@ def load_and_refine_data():
     return features_df
 
 def load_data():
-    features_df = pd.read_csv(feature_data_path, low_memory=False)
+    features_df = pd.read_parquet(feature_data_path)
 
     return features_df
 
@@ -208,11 +294,36 @@ def create_confusion_matrix(y_test : pd.DataFrame, y_pred : pd.DataFrame, labels
 
 # Condenses all underrepresented Precambrian classes into one bucket for human interpretation
 def condense_precambrian(df : pd.DataFrame, min_count : int):
-    filtered_df = df[df['strat'].str.startswith('P')]
+    filtered_df = df[df[Field.STRAT].str.startswith('P')]
 
-    strat_counts = filtered_df['strat'].value_counts()
+    strat_counts = filtered_df[Field.STRAT].value_counts()
     rare_strats = strat_counts[strat_counts < min_count].index
 
-    df['strat'] = df['strat'].apply(lambda x: utils.PRECAMBRIAN_UNKNOWN if x in rare_strats else x)
+    df.loc[df[Field.STRAT].isin(rare_strats), Field.STRAT] = 'PUDF'
+    return df
+
+# Condenses other underrepresented classes into their respective buckets for human interpretation
+def condense_other_bedrock(df : pd.DataFrame, min_count : int):
+    utils.load_bedrock_categories(df)
+
+    condensed_strats = []
+    filtered_df = df[df[Field.STRAT].isin(utils.BEDROCK_PARENT_MAP)]
+
+    while True:
+        strat_counts = filtered_df[Field.STRAT].value_counts()
+
+        rare_strats = strat_counts[strat_counts < min_count]
+
+        if rare_strats.empty:
+            break
+
+        rarest = rare_strats.idxmin()
+
+        if rarest in condensed_strats:
+            filtered_df = filtered_df[filtered_df[Field.STRAT] != rarest]
+            continue
+
+        df.loc[df[Field.STRAT] == rarest, Field.STRAT] = utils.BEDROCK_PARENT_MAP[rarest]
+        condensed_strats.append(rarest)
 
     return df

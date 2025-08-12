@@ -1,14 +1,10 @@
 https://conservancy.umn.edu/server/api/core/bitstreams/29bc663a-c58c-41e9-b91b-d9b5523b7ce3/content
 
-age_classifier = LGBMClassifier(
-        n_estimators=200,
-        verbose=-1,
-        boosting_type='dart',
-        device='gpu',
-        class_weight='balanced',
-        min_child_samples=1,
-        min_data_in_leaf=1
-    )
+0.9874356237629919
+
+1000 numers
+0.9875262945193414
+
 
 Accuracy: 0.9586288599929489
               precision    recall  f1-score   support
@@ -183,6 +179,9 @@ Accuracy: 0.9824112284934166
    macro avg       0.91      0.97      0.93    305081
 weighted avg       0.98      0.98      0.98    305081
 
+0.956672331430111
+
+
 
 Bedrock Catagories:
 
@@ -192,8 +191,6 @@ PUDF: 1857
 DEVO: 18
 KRET: 16794
 ORDO: 115
-
-Cretaceous doesn't seem to have nice groups like the others
 
 Carlile Shale:
 KCBH: 6

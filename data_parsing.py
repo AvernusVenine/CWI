@@ -2,6 +2,8 @@ import pandas as pd
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 import numpy as np
+import geopandas as gpd
+from shapely.geometry import Point
 
 import data_refinement
 
@@ -13,18 +15,17 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 pd.set_option('display.max_colwidth', None)
 
-df = pd.DataFrame({
-    'colors': ['BLK/BLU', 'GRN/YEL/BRN', 'RED', None]
-})
+gdf = gpd.read_file('map_data/s21_files_only/kc_pg.shp')
 
-encoded_colors = df['colors'].apply(data_refinement.one_hot_colors)
+df = pd.read_csv('compiled_data/features_df.csv')
+print(list(df.columns))
 
-# Optionally concatenate it to your original DataFrame
-df = pd.concat([df, encoded_colors], axis=1)
+#point = Point(479726, 4979833)
 
-print(df)
+#print(gdf[gdf.geometry.contains(point)])
 
 #df = pd.read_csv(cwi_layer_data_path, low_memory=False, on_bad_lines='skip')
+
 #df = df.dropna(subset=['strat'])
 
 #df = df[df['strat'].str.startswith('P')]
