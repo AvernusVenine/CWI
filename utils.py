@@ -1,7 +1,10 @@
 import pandas as pd
+from Enum import enum
 
 from comparison_test import bedrock
 
+class Group(enum):
+    CEDAR_VALLEY
 
 class Bedrock:
     C_UNDIFF = 'CAMB'
@@ -367,31 +370,22 @@ BEDROCK_AGE_MAP = {
     'PMSC' : frozenset([Bedrock.P_UNDIFF]),
 }
 
+# Giant list of every possible (well layered) code and which group(s) they belong to
 BEDROCK_GROUP_MAP = {
-    'CAMB': frozenset([Bedrock.C_UNDIFF]),
-    'PUDF': frozenset([Bedrock.P_UNDIFF]),
-    'DEVO': frozenset([Bedrock.D_UNDIFF]),
-    'KRET': frozenset([Bedrock.K_UNDIFF]),
-    'ORDO': frozenset([Bedrock.O_UNDIFF]),
+    'KREG': frozenset([Bedrock.K_REGOLITH]),
 
-    'KCRL': frozenset([Bedrock.K_UNDIFF]),
-    'KCLR': frozenset([Bedrock.K_UNDIFF]),
-    'KREG': frozenset([Bedrock.K_UNDIFF]),
-    'KSRC': frozenset([Bedrock.K_UNDIFF]),
-    'KWND': frozenset([Bedrock.K_UNDIFF]),
-
-    'DCVU': frozenset([Bedrock.D_UNDIFF]),
-    'DCLC': frozenset([Bedrock.D_UNDIFF]),
-    'DCVA': frozenset([Bedrock.D_UNDIFF]),
-    'DLCD': frozenset([Bedrock.D_UNDIFF]),
-    'DCLP': frozenset([Bedrock.D_UNDIFF]),
-    'DCLS': frozenset([Bedrock.D_UNDIFF]),
-    'DCOG': frozenset([Bedrock.D_UNDIFF]),
-    'DCOM': frozenset([Bedrock.D_UNDIFF]),
-    'DCVL': frozenset([Bedrock.D_UNDIFF]),
-    'DWAP': frozenset([Bedrock.D_UNDIFF]),
-    'DWPR': frozenset([Bedrock.D_UNDIFF]),
-    'DPOG': frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
+    'DCVU': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.UPPER_CEDAR]),
+    'DCLC': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR]),
+    'DCVA': frozenset([Bedrock.CEDAR_VALLEY]),
+    'DLCD': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR]),
+    'DCLP': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR, Bedrock.WAPSIPINICON]),
+    'DCLS': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR, Bedrock.WAPSIPINICON]),
+    'DCOG': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.GALENA]),
+    'DCOM': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.MAQUOKETA]),
+    'DCVL': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR]),
+    'DWAP': frozenset([Bedrock.WAPSIPINICON]),
+    'DWPR': frozenset([Bedrock.WAPSIPINICON]),
+    'DPOG': frozenset([Bedrock.WAPSIPINICON, Bedrock.GALENA]),
     'DPOM': frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
     'DSOG': frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
     'DSOM': frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
@@ -493,7 +487,7 @@ BEDROCK_SET_MAP = {
     'DCVU' : frozenset([Bedrock.UPPER_CEDAR,
                         Bedrock.CEDAR_VALLEY,
                         Bedrock.D_UNDIFF]),
-    'DCLC' : frozenset([Bedrock.UPPER_CEDAR, Bedrock.LITTLE_CEDAR,
+    'DCLC' : frozenset([Bedrock., Bedrock.LITTLE_CEDAR,
                         Bedrock.CEDAR_VALLEY,
                         Bedrock.D_UNDIFF]),
 

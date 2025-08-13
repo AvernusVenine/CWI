@@ -1,4 +1,5 @@
 https://conservancy.umn.edu/server/api/core/bitstreams/29bc663a-c58c-41e9-b91b-d9b5523b7ce3/content
+https://conservancy.umn.edu/items/7c81059b-9953-44b7-bf0b-0627cf868297
 
 0.9874356237629919
 
@@ -229,7 +230,7 @@ DCVU: 898 (MAIN)
 Lithograph City Formation (Upper Cedar):
 DLGH: 31 (MAIN)
 
-Coralville Formation (Upper Cedar):
+Coralville Formation (Cedar Valley):
 DCRL: 7 (MAIN)
 DCUM: 2
 DCGZ: 15
