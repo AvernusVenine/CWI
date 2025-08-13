@@ -304,7 +304,7 @@ def condense_precambrian(df : pd.DataFrame, min_count : int):
 
 # Returns a list of labels each bedrock code is a part of
 def bedrock_to_labels(df : pd.DataFrame):
-    labels = list(set.union(*utils.BEDROCK_SET_MAP.values()))
+    labels = list(set().union(*map(set, utils.BEDROCK_SET_MAP.values())))
     labels_df = pd.DataFrame(columns=labels)
 
     for label in labels:

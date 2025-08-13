@@ -8,7 +8,7 @@ import data_refinement
 import utils
 import xgboost
 import cupy
-from sklearn.multilabel import MultiLabelClassifier
+from sklearn.multiclass import OneVsRestClassifier
 
 def train_age_classifier(features_df : pd.DataFrame):
     print("TRAINING AGE CLASSIFIER")
@@ -125,8 +125,10 @@ def train_bedrock_classifier(features_df : pd.DataFrame):
     print("TRAINING BEDROCK CLASSIFIER")
 
     bedrock_layers = features_df[features_df['strat'].str.startswith(utils.BEDROCK_AGES)]
+    sorted_precamb = features_df[features_df['strat'].isin(utils.SORTED_PRECAMBRIAN)]
 
-    bedrock_layers = data_refinement.condense_precambrian(bedrock_layers, utils.MIN_LABEL_COUNT)
+    bedrock_layers = pd.concat([bedrock_layers, sorted_precamb])
+
     bedrock_layers = data_refinement.condense_other_bedrock(bedrock_layers)
 
     utils.load_bedrock_categories(bedrock_layers)
@@ -141,12 +143,9 @@ def train_bedrock_classifier(features_df : pd.DataFrame):
     X_train = X_train.drop(columns=utils.BEDROCK_DROP_COLS + utils.GENERAL_DROP_COLS)
     X_test = X_test.drop(columns=utils.BEDROCK_DROP_COLS + utils.GENERAL_DROP_COLS)
 
-    X_train = cupy.array(X_train)
-    X_test = cupy.array(X_test)
-
     bedrock_classifier = xgboost.XGBClassifier(
         booster='dart',
-        n_estimators=1000,
+        n_estimators=25,
         device='cuda',
 
         rate_drop=.1,
@@ -156,28 +155,23 @@ def train_bedrock_classifier(features_df : pd.DataFrame):
         tree_method='hist'
     )
 
-    model = MultiLabelClassifier(bedrock_classifier)
-    model.fit(X_train, y_train, sample_weight=weights)
+    model = OneVsRestClassifier(bedrock_classifier)
+    model.fit(X_train, y_train)
 
-    joblib.dump(model, f'trained_models/bedrock_model.joblib')
+    joblib.dump(model, f'trained_models/multilabel_bedrock_model.joblib')
 
     print("EVALUATING BEDROCK CLASSIFIER")
 
     y_pred = model.predict(X_test)
 
-    #TODO: Need to make this reflect changes from a single classifier to a multilabel model
-    y_test_labels = pd.Series(y_test).map(utils.INV_BEDROCK_CATEGORIES)
-    y_pred_labels = pd.Series(y_pred).map(utils.INV_BEDROCK_CATEGORIES)
-
     print("Accuracy:", accuracy_score(y_test, y_pred))
-    print(classification_report(y_test_labels, y_pred_labels, zero_division=0))
+    print(classification_report(y_test, y_pred, zero_division=0, target_names=y_test.columns))
 
-    data_refinement.create_confusion_matrix(y_test, y_pred, list(utils.INV_BEDROCK_CATEGORIES.values()))
+    #data_refinement.create_confusion_matrix(y_test, y_pred, list(utils.INV_BEDROCK_CATEGORIES.values()))
 
 def train_precambrian_classifer(df : pd.DataFrame):
     print("TRAINING PRECAMBRIAN CLASSIFIER")
 
-    bedrock_layers = features_df[features_df['strat'].str.startswith(age)]
 
     print("EVALUATING PRECAMBRIAN CLASSIFIER")
 
