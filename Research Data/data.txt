@@ -299,7 +299,7 @@ Decorah Shale (Galena Group):
 ODCA: 3
 ODCR: 4563 (MAIN)
 ODPG: 144
-ODPL: 181
+ODPL: 181 OGDP: 69, these are the same thing?
 ODSP: 3
 
 Platteville Formation:
