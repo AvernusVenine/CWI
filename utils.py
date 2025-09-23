@@ -1,10 +1,22 @@
 import pandas as pd
-from Enum import enum
 
 from comparison_test import bedrock
+from Bedrock import Bedrock, Age, Group, Formation, Member, GeoCode
 
-class Group(enum):
-    CEDAR_VALLEY
+class Unit:
+    AGES : tuple
+    GROUPS : tuple
+    FORMATIONS : tuple
+    MEMBERS : tuple
+    SET : frozenset[str]
+
+    def __init__(self, ages : tuple, groups : tuple = (), formations : tuple = (), members : tuple = ()):
+        self.AGES = ages
+        self.GROUPS = groups
+        self.FORMATIONS = formations
+        self.MEMBERS = members
+        self.SET = frozenset(ages + groups + formations + members)
+
 
 class Bedrock:
     C_UNDIFF = 'CAMB'
@@ -27,6 +39,8 @@ class Bedrock:
     PINICON_RIDGE = 'DWPR'
     WAPSIPINICON = 'DWAP'
     SPILLVILLE = 'DSPL'
+    CORALVILLE = 'DCRL'
+    LITHOGRAPH_CITY = 'DLGH'
 
     MAQUOKETA = 'OMAQ'
     GALENA = 'OGGP'
@@ -251,8 +265,6 @@ BEDROCK_UNDERREP_MAP = {
     'OPMI' : Bedrock.PLATTEVILLE,
     'OPPE' : Bedrock.PLATTEVILLE,
 
-    'OGDP' : 'ODPL', #TODO: Need to ask but I am pretty sure these represent the exact same thing
-
     'OOCV' : Bedrock.ONEOTA,
     'OOHC' : Bedrock.ONEOTA,
 
@@ -269,227 +281,281 @@ BEDROCK_UNDERREP_MAP = {
 
     'CMRC' : Bedrock.MT_SIMON,
 }
-# Giant list of every possible (well layered) code and which age(s) they belong to
-BEDROCK_AGE_MAP = {
-    'CAMB': frozenset([Bedrock.C_UNDIFF]),
-    'PUDF': frozenset([Bedrock.P_UNDIFF]),
-    'DEVO': frozenset([Bedrock.D_UNDIFF]),
-    'KRET': frozenset([Bedrock.K_UNDIFF]),
-    'ORDO': frozenset([Bedrock.O_UNDIFF]),
-
-    'KCRL' : frozenset([Bedrock.K_UNDIFF]),
-    'KCLR' : frozenset([Bedrock.K_UNDIFF]),
-    'KREG' : frozenset([Bedrock.K_UNDIFF]),
-    'KSRC' : frozenset([Bedrock.K_UNDIFF]),
-    'KWND' : frozenset([Bedrock.K_UNDIFF]),
-
-    'DCVU' : frozenset([Bedrock.D_UNDIFF]),
-    'DCLC' : frozenset([Bedrock.D_UNDIFF]),
-    'DCVA' : frozenset([Bedrock.D_UNDIFF]),
-    'DLCD' : frozenset([Bedrock.D_UNDIFF]),
-    'DCLP' : frozenset([Bedrock.D_UNDIFF]),
-    'DCLS' : frozenset([Bedrock.D_UNDIFF]),
-    'DCOG' : frozenset([Bedrock.D_UNDIFF]),
-    'DCOM' : frozenset([Bedrock.D_UNDIFF]),
-    'DCVL' : frozenset([Bedrock.D_UNDIFF]),
-    'DWAP' : frozenset([Bedrock.D_UNDIFF]),
-    'DWPR' : frozenset([Bedrock.D_UNDIFF]),
-    'DPOG' : frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
-    'DPOM' : frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
-    'DSOG' : frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
-    'DSOM' : frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
-
-    'DSPL' : frozenset([Bedrock.D_UNDIFF]),
-    'OMAQ' : frozenset([Bedrock.O_UNDIFF]),
-    'OMQD' : frozenset([Bedrock.O_UNDIFF]),
-    'OMQG' : frozenset([Bedrock.O_UNDIFF]),
-    'OGAP' : frozenset([Bedrock.O_UNDIFF]),
-    'OGGP' : frozenset([Bedrock.O_UNDIFF]),
-    'OGPD' : frozenset([Bedrock.O_UNDIFF]),
-    'ODGL' : frozenset([Bedrock.O_UNDIFF]),
-    'ODUB' : frozenset([Bedrock.O_UNDIFF]),
-    'OGSC' : frozenset([Bedrock.O_UNDIFF]),
-    'OGSD' : frozenset([Bedrock.O_UNDIFF]),
-    'OGVP' : frozenset([Bedrock.O_UNDIFF]),
-    'OGSV' : frozenset([Bedrock.O_UNDIFF]),
-    'OGPC' : frozenset([Bedrock.O_UNDIFF]),
-    'OGPR' : frozenset([Bedrock.O_UNDIFF]),
-    'OGCM' : frozenset([Bedrock.O_UNDIFF]),
-    'OGCD' : frozenset([Bedrock.O_UNDIFF]),
-    'ODCR' : frozenset([Bedrock.O_UNDIFF]),
-    'OGDP' : frozenset([Bedrock.O_UNDIFF]),
-    'ODPG' : frozenset([Bedrock.O_UNDIFF]),
-    'ODSP' : frozenset([Bedrock.O_UNDIFF]),
-    'OPGW' : frozenset([Bedrock.O_UNDIFF]),
-    'OPSP' : frozenset([Bedrock.O_UNDIFF]),
-    'OPVJ' : frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPVL' : frozenset([Bedrock.O_UNDIFF]),
-    'OGSP' : frozenset([Bedrock.O_UNDIFF]),
-    'OGWD' : frozenset([Bedrock.O_UNDIFF]),
-    'OSCJ' : frozenset([Bedrock.O_UNDIFF]),
-    'OSCS' : frozenset([Bedrock.O_UNDIFF]),
-    'OSPC' : frozenset([Bedrock.O_UNDIFF]),
-    'OSTP' : frozenset([Bedrock.O_UNDIFF]),
-    'OPCJ' : frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPCM' : frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPCS' : frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPCT' : frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPDC' : frozenset([Bedrock.O_UNDIFF]),
-    'OPNR' : frozenset([Bedrock.O_UNDIFF]),
-    'OPWR' : frozenset([Bedrock.O_UNDIFF]),
-    'OPSH' : frozenset([Bedrock.O_UNDIFF]),
-    'OPOD' : frozenset([Bedrock.O_UNDIFF]),
-    'OWIN' : frozenset([Bedrock.O_UNDIFF]),
-
-    'CJDN' : frozenset([Bedrock.C_UNDIFF]),
-    'CJMS' : frozenset([Bedrock.C_UNDIFF]),
-    'CJEC' : frozenset([Bedrock.C_UNDIFF]),
-    'CJDW' : frozenset([Bedrock.C_UNDIFF]),
-    'CJSL' : frozenset([Bedrock.C_UNDIFF]),
-    'CJTC' : frozenset([Bedrock.C_UNDIFF]),
-    'CSLT' : frozenset([Bedrock.C_UNDIFF]),
-    'CSLW' : frozenset([Bedrock.C_UNDIFF]),
-    'CSTL' : frozenset([Bedrock.C_UNDIFF]),
-    'CTCG' : frozenset([Bedrock.C_UNDIFF]),
-    'CTCM' : frozenset([Bedrock.C_UNDIFF]),
-    'CTCW' : frozenset([Bedrock.C_UNDIFF]),
-    'CTCE' : frozenset([Bedrock.C_UNDIFF]),
-    'CTMZ' : frozenset([Bedrock.C_UNDIFF]),
-    'CWMS' : frozenset([Bedrock.C_UNDIFF]),
-    'CWOC' : frozenset([Bedrock.C_UNDIFF]),
-    'CWEC' : frozenset([Bedrock.C_UNDIFF]),
-    'CECR' : frozenset([Bedrock.C_UNDIFF]),
-    'CEMS' : frozenset([Bedrock.C_UNDIFF]),
-    'CMFL' : frozenset([Bedrock.C_UNDIFF, Bedrock.P_UNDIFF]),
-    'CMSH' : frozenset([Bedrock.C_UNDIFF, Bedrock.P_UNDIFF]),
-    'CMTS' : frozenset([Bedrock.C_UNDIFF]),
-
-    'PMHN' : frozenset([Bedrock.P_UNDIFF]),
-    'PMHF' : frozenset([Bedrock.P_UNDIFF]),
-    'PMFL' : frozenset([Bedrock.P_UNDIFF]),
-    'PMSC' : frozenset([Bedrock.P_UNDIFF]),
-}
-
-# Giant list of every possible (well layered) code and which group(s) they belong to
-BEDROCK_GROUP_MAP = {
-    'KREG': frozenset([Bedrock.K_REGOLITH]),
-
-    'DCVU': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.UPPER_CEDAR]),
-    'DCLC': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR]),
-    'DCVA': frozenset([Bedrock.CEDAR_VALLEY]),
-    'DLCD': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR]),
-    'DCLP': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR, Bedrock.WAPSIPINICON]),
-    'DCLS': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR, Bedrock.WAPSIPINICON]),
-    'DCOG': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.GALENA]),
-    'DCOM': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.MAQUOKETA]),
-    'DCVL': frozenset([Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR]),
-    'DWAP': frozenset([Bedrock.WAPSIPINICON]),
-    'DWPR': frozenset([Bedrock.WAPSIPINICON]),
-    'DPOG': frozenset([Bedrock.WAPSIPINICON, Bedrock.GALENA]),
-    'DPOM': frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
-    'DSOG': frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
-    'DSOM': frozenset([Bedrock.D_UNDIFF, Bedrock.O_UNDIFF]),
-
-    'DSPL': frozenset([Bedrock.D_UNDIFF]),
-    'OMAQ': frozenset([Bedrock.O_UNDIFF]),
-    'OMQD': frozenset([Bedrock.O_UNDIFF]),
-    'OMQG': frozenset([Bedrock.O_UNDIFF]),
-    'OGAP': frozenset([Bedrock.O_UNDIFF]),
-    'OGGP': frozenset([Bedrock.O_UNDIFF]),
-    'OGPD': frozenset([Bedrock.O_UNDIFF]),
-    'ODGL': frozenset([Bedrock.O_UNDIFF]),
-    'ODUB': frozenset([Bedrock.O_UNDIFF]),
-    'OGSC': frozenset([Bedrock.O_UNDIFF]),
-    'OGSD': frozenset([Bedrock.O_UNDIFF]),
-    'OGVP': frozenset([Bedrock.O_UNDIFF]),
-    'OGSV': frozenset([Bedrock.O_UNDIFF]),
-    'OGPC': frozenset([Bedrock.O_UNDIFF]),
-    'OGPR': frozenset([Bedrock.O_UNDIFF]),
-    'OGCM': frozenset([Bedrock.O_UNDIFF]),
-    'OGCD': frozenset([Bedrock.O_UNDIFF]),
-    'ODCR': frozenset([Bedrock.O_UNDIFF]),
-    'OGDP': frozenset([Bedrock.O_UNDIFF]),
-    'ODPG': frozenset([Bedrock.O_UNDIFF]),
-    'ODSP': frozenset([Bedrock.O_UNDIFF]),
-    'OPGW': frozenset([Bedrock.O_UNDIFF]),
-    'OPSP': frozenset([Bedrock.O_UNDIFF]),
-    'OPVJ': frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPVL': frozenset([Bedrock.O_UNDIFF]),
-    'OGSP': frozenset([Bedrock.O_UNDIFF]),
-    'OGWD': frozenset([Bedrock.O_UNDIFF]),
-    'OSCJ': frozenset([Bedrock.O_UNDIFF]),
-    'OSCS': frozenset([Bedrock.O_UNDIFF]),
-    'OSPC': frozenset([Bedrock.O_UNDIFF]),
-    'OSTP': frozenset([Bedrock.O_UNDIFF]),
-    'OPCJ': frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPCM': frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPCS': frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPCT': frozenset([Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OPDC': frozenset([Bedrock.O_UNDIFF]),
-    'OPNR': frozenset([Bedrock.O_UNDIFF]),
-    'OPWR': frozenset([Bedrock.O_UNDIFF]),
-    'OPSH': frozenset([Bedrock.O_UNDIFF]),
-    'OPOD': frozenset([Bedrock.O_UNDIFF]),
-    'OWIN': frozenset([Bedrock.O_UNDIFF]),
-
-    'CJDN': frozenset([Bedrock.C_UNDIFF]),
-    'CJMS': frozenset([Bedrock.C_UNDIFF]),
-    'CJEC': frozenset([Bedrock.C_UNDIFF]),
-    'CJDW': frozenset([Bedrock.C_UNDIFF]),
-    'CJSL': frozenset([Bedrock.C_UNDIFF]),
-    'CJTC': frozenset([Bedrock.C_UNDIFF]),
-    'CSLT': frozenset([Bedrock.C_UNDIFF]),
-    'CSLW': frozenset([Bedrock.C_UNDIFF]),
-    'CSTL': frozenset([Bedrock.C_UNDIFF]),
-    'CTCG': frozenset([Bedrock.C_UNDIFF]),
-    'CTCM': frozenset([Bedrock.C_UNDIFF]),
-    'CTCW': frozenset([Bedrock.C_UNDIFF]),
-    'CTCE': frozenset([Bedrock.C_UNDIFF]),
-    'CTMZ': frozenset([Bedrock.C_UNDIFF]),
-    'CWMS': frozenset([Bedrock.C_UNDIFF]),
-    'CWOC': frozenset([Bedrock.C_UNDIFF]),
-    'CWEC': frozenset([Bedrock.C_UNDIFF]),
-    'CECR': frozenset([Bedrock.C_UNDIFF]),
-    'CEMS': frozenset([Bedrock.C_UNDIFF]),
-    'CMFL': frozenset([Bedrock.C_UNDIFF, Bedrock.P_UNDIFF]),
-    'CMSH': frozenset([Bedrock.C_UNDIFF, Bedrock.P_UNDIFF]),
-    'CMTS': frozenset([Bedrock.C_UNDIFF]),
-
-    'PMHN': frozenset([Bedrock.P_UNDIFF]),
-    'PMHF': frozenset([Bedrock.P_UNDIFF]),
-    'PMFL': frozenset([Bedrock.P_UNDIFF]),
-    'PMSC': frozenset([Bedrock.P_UNDIFF]),
-}
 
 #TODO: Sometimes a layer is two classifications at once, so we need to assign both as valid predictions
-BEDROCK_SET_MAP = {
-    'CAMB' : frozenset([Bedrock.C_UNDIFF]),
-    'PUDF' : frozenset([Bedrock.P_UNDIFF]),
-    'DEVO' : frozenset([Bedrock.D_UNDIFF]),
-    'KRET' : frozenset([Bedrock.K_UNDIFF]),
-    'ORDO' : frozenset([Bedrock.O_UNDIFF]),
+BEDROCK_CODES = {
+    'CAMB' : Unit(
+        (Bedrock.C_UNDIFF,),
+    ),
+    'PUDF' : Unit(
+        (Bedrock.P_UNDIFF,),
+    ),
+    'DEVO' : Unit(
+        (Bedrock.D_UNDIFF,),
+    ),
+    'KRET' : Unit(
+        (Bedrock.K_UNDIFF,),
+    ),
+    'ORDO' : Unit(
+        (Bedrock.O_UNDIFF,),
+    ),
 
-    'KCRL' : frozenset([Bedrock.CARLILE,
-                        Bedrock.K_UNDIFF]),
+    ###### CRETACEOUS ######
+    'KCRL' : Unit(
+        (Bedrock.K_UNDIFF,),
+        (),
+        (Bedrock.CARLILE,)
+    ),
 
-    'KCLR' : frozenset([Bedrock.COLERAINE,
-                        Bedrock.K_UNDIFF]),
+    'KCLR' : Unit(
+        (Bedrock.K_UNDIFF,),
+        (),
+        (Bedrock.COLERAINE,)
+    ),
 
-    'KREG' : frozenset([Bedrock.K_REGOLITH,
-                        Bedrock.K_UNDIFF]),
+    'KREG' : Unit(
+        (Bedrock.K_UNDIFF,),
+        (Bedrock.K_REGOLITH,)
+    ),
 
-    'KSRC' : frozenset([Bedrock.SPLIT_ROCK_CREEK,
-                        Bedrock.K_UNDIFF]),
+    'KSRC' : Unit(
+        (Bedrock.K_UNDIFF,),
+        (),
+        (Bedrock.SPLIT_ROCK_CREEK,)
+    ),
 
-    'KWND' : frozenset([Bedrock.WINDROW,
-                        Bedrock.K_UNDIFF]),
+    'KWND' : Unit(
+        (Bedrock.K_UNDIFF,),
+        (),
+        (Bedrock.WINDROW,)
+    ),
 
-    'DCVU' : frozenset([Bedrock.UPPER_CEDAR,
-                        Bedrock.CEDAR_VALLEY,
-                        Bedrock.D_UNDIFF]),
-    'DCLC' : frozenset([Bedrock., Bedrock.LITTLE_CEDAR,
-                        Bedrock.CEDAR_VALLEY,
-                        Bedrock.D_UNDIFF]),
+    ###### DEVONIAN ######
+    'DCGZ' : Unit( #Coralville/Gizzard Crk Mbr
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.CORALVILLE,)
+    ),
+    'DCIC' : Unit( #Coraville/Iowa City Mbr
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.CORALVILLE,)
+    ),
+    'DCLC' : Unit( #Coralville - Little Cedar
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR),
+        (Bedrock.LITTLE_CEDAR, Bedrock.CORALVILLE)
+    ),
+    'DCLP' : Unit( #Lower Cedar Valley - Pinicon Ridge
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR, Bedrock.WAPSIPINICON),
+        (Bedrock.PINICON_RIDGE,)
+    ),
+    'DCLS' : Unit( #Lower Cedar Valley - Spillville
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR, Bedrock.WAPSIPINICON),
+        (Bedrock.SPILLVILLE,)
+    ),
+    'DCOG' : Unit( #Cedar Valley - Galena
+        (Bedrock.D_UNDIFF, Bedrock.O_UNDIFF),
+        (Bedrock.CEDAR_VALLEY, Bedrock.GALENA),
+    ),
+    'DCOM'  : Unit( #Cedar Valley - Maquoketa
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.MAQUOKETA,)
+    ),
+    'DCRL' : Unit( #Coralville
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.CORALVILLE,)
+    ),
+    'DCUM' : Unit( #Coraville + Hinckle
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.CORALVILLE,)
+    ),
+    'DCVA' : Unit( #Cedar Valley
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,)
+    ),
+    'DCVL' : Unit( #Lower Cedar Valley
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY, Bedrock.LOWER_CEDAR),
+    ),
+    'DCVU' : Unit( #Upper Cedar Valley
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY, Bedrock.UPPER_CEDAR),
+    ),
+    'DLBA' : Unit( #Little Cedar / Bassett
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.LITTLE_CEDAR,)
+    ),
+    'DLCB' : Unit( #Little Cedar / Chickasaw Shale + Bassett
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.LITTLE_CEDAR,)
+    ),
+    'DLCD' : Unit( # Little Cedar
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.LITTLE_CEDAR,)
+    ),
+    'DLCH' : Unit( # Little Cedar / Chickasaw Shale
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.LITTLE_CEDAR,)
+    ),
+    #Missing DLCK
+    'DLGH' : Unit( #Lithograph City
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY, Bedrock.UPPER_CEDAR),
+        (Bedrock.LITHOGRAPH_CITY,)
+    ),
+    'DLHE' : Unit( # Little Cedar / Hinkle + Eagle Center
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.LITTLE_CEDAR,)
+    ),
+    'DLID' : Unit( #Lithograph City / Idlewild
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY, Bedrock.UPPER_CEDAR),
+        (Bedrock.LITHOGRAPH_CITY,)
+    ),
+    'DLOS' : Unit( # Lithograph City / Osage Springs
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.CEDAR_VALLEY,),
+        (Bedrock.LITTLE_CEDAR,)
+    ),
+    'DPOG' : Unit( #Pinicon Ridge - Galena
+        (Bedrock.D_UNDIFF, Bedrock.O_UNDIFF),
+        (Bedrock.WAPSIPINICON, Bedrock.GALENA),
+        (Bedrock.PINICON_RIDGE,)
+    ),
+    'DPOM' : Unit( #Pinicon Ridge - Maquoketa
+        (Bedrock.D_UNDIFF, Bedrock.O_UNDIFF),
+        (Bedrock.WAPSIPINICON,),
+        (Bedrock.PINICON_RIDGE, Bedrock.MAQUOKETA)
+    ),
+    'DSOG' : Unit( #Spillville - Galena
+        (Bedrock.D_UNDIFF, Bedrock.O_UNDIFF),
+        (Bedrock.WAPSIPINICON, Bedrock.GALENA),
+        (Bedrock.SPILLVILLE,)
+    ),
+    'DSOM' : Unit( #Spillville - Maquoketa
+        (Bedrock.D_UNDIFF, Bedrock.O_UNDIFF),
+        (Bedrock.WAPSIPINICON,),
+        (Bedrock.SPILLVILLE, Bedrock.MAQUOKETA)
+    ),
+    'DSPL' : Unit( #Spillville
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.WAPSIPINICON,),
+        (Bedrock.SPILLVILLE,)
+    ),
+    'DWAP' : Unit( #Wapsipinicon
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.WAPSIPINICON,)
+    ),
+    'DWPR' : Unit( #Pinicon
+        (Bedrock.D_UNDIFF,),
+        (Bedrock.WAPSIPINICON,),
+        (Bedrock.PINICON_RIDGE,)
+    ),
+    'ODCA' : Unit( #Decorah/Carimona
+        (Bedrock.O_UNDIFF,),
+        (),
+        (Bedrock.DECORAH,)
+    ),
+    'ODCR' : Unit( #Decorah
+        (Bedrock.O_UNDIFF,),
+        (),
+        (Bedrock.DECORAH,)
+    ),
+    'ODGL' : Unit( #Decorah - Cummingsville
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.DECORAH, Bedrock.CUMMINGSVILLE)
+    ),
+    'ODPG' : Unit( #Decorah - Platteville - Glenwood
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.DECORAH, Bedrock.GLENWOOD)
+    ),
+    'ODPL' : Unit( #Decorah - Platteville
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.DECORAH, Bedrock.PLATTEVILLE)
+    ),
+    'ODSP' : Unit( #Decorah - St. Peter
+        (Bedrock.O_UNDIFF,),
+        (),
+        (Bedrock.DECORAH, Bedrock.ST_PETER)
+    ),
+    'ODUB' : Unit( #Dubuque
+        (Bedrock.O_UNDIFF,),
+        (),
+        (Bedrock.DUBUQUE,)
+    ),
+    'OGAP' : Unit( #Galena - St. Peter
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.ST_PETER,)
+    ),
+    'OGCD' : Unit( #Cummingsville - Decorah
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.DECORAH, Bedrock.CUMMINGSVILLE)
+    ),
+    'OGCM' : Unit( #Cummingsville
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.CUMMINGSVILLE,)
+    ),
+    'OGDP' : Unit( #Galena - Decorah - Platteville
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.DECORAH, Bedrock.PLATTEVILLE)
+    ),
+    'OGGP' : Unit( #Galena
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+    ),
+    'OGPC' : Unit( #Prosser - Cummingsville
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.PROSSER, Bedrock.CUMMINGSVILLE)
+    ),
+    'OGPD' : Unit( #Galena/Prosser - Decorah
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.DECORAH, Bedrock.PROSSER)
+    ),
+    'OGPR' : Unit( #Galena/Prosser
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.PROSSER,)
+    ),
+    'OGSC' : Unit( #Stewartville - Cummingsville
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.STEWARTVILLE, Bedrock.CUMMINGSVILLE)
+    ),
+    'OGSD' : Unit( #Stewartville - Decorah
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA,),
+        (Bedrock.DECORAH, Bedrock.STEWARTVILLE)
+    ),
+    'OGSP' : Unit( #Glenwood - St. Peter
+        (Bedrock.O_UNDIFF,),
+        (),
+        (Bedrock.GLENWOOD, Bedrock.ST_PETER)
+    ),
+    'OGSV' : Unit( #Galena/Stewartville
+        (Bedrock.O_UNDIFF,),
+        (Bedrock.GALENA),
+        (Bedrock.STEWARTVILLE,)
+    ),
 
     'DCVA' : frozenset([Bedrock.CEDAR_VALLEY,
                         Bedrock.D_UNDIFF]),
@@ -624,8 +690,6 @@ BEDROCK_SET_MAP = {
     'OSCS' : frozenset([Bedrock.ST_PETER, Bedrock.ST_LAWRENCE,
                         Bedrock.SHAKOPEE, Bedrock.ONEOTA, Bedrock.PRARIE_DU_CHIEN, Bedrock.JORDAN,
                         Bedrock.O_UNDIFF, Bedrock.C_UNDIFF]),
-    'OSPC' : frozenset([Bedrock.ST_PETER, Bedrock.PRARIE_DU_CHIEN,
-                        Bedrock.]),
     'OSTP' : frozenset([Bedrock.ST_PETER]),
 
     'OPCJ' : frozenset([Bedrock.PRARIE_DU_CHIEN, Bedrock.JORDAN]),

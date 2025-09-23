@@ -5,8 +5,6 @@ import numpy as np
 import geopandas as gpd
 from shapely.geometry import Point
 
-import data_refinement
-
 cwi_well_data_path = 'cwi_data/cwi5.csv'
 cwi_layer_data_path = 'cwi_data/c5st.csv'
 
@@ -15,18 +13,16 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 pd.set_option('display.max_colwidth', None)
 
-gdf = gpd.read_file('map_data/s21_files_only/kc_pg.shp')
-
-df = pd.read_csv('compiled_data/features_df.csv')
-print(list(df.columns))
-
 #point = Point(479726, 4979833)
 
 #print(gdf[gdf.geometry.contains(point)])
 
-#df = pd.read_csv(cwi_layer_data_path, low_memory=False, on_bad_lines='skip')
+df = pd.read_csv(cwi_layer_data_path, low_memory=False, on_bad_lines='skip')
 
-#df = df.dropna(subset=['strat'])
+df = df.dropna(subset=['strat'])
+
+print(df['strat'].value_counts())
+print(df['strat'].nunique())
 
 #df = df[df['strat'].str.startswith('P')]
 

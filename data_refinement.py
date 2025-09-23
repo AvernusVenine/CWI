@@ -11,6 +11,7 @@ import random
 import geopandas as gpd
 from shapely.geometry import Point
 
+import Bedrock
 import utils
 from utils import Field
 
@@ -299,11 +300,13 @@ def condense_precambrian(df : pd.DataFrame, min_count : int):
     strat_counts = filtered_df[Field.STRAT].value_counts()
     rare_strats = strat_counts[strat_counts < min_count].index
 
-    df.loc[df[Field.STRAT].isin(rare_strats), Field.STRAT] = 'PUDF'
+    df.loc[df[Field.STRAT].isin(rare_strats), Field.STRAT] = 'PCUU'
     return df
 
 # Returns a list of labels each bedrock code is a part of
 def bedrock_to_labels(df : pd.DataFrame):
+    age_list = [item.name for item in Bedrock.AGE_LIST]
+
     labels = list(set().union(*map(set, utils.BEDROCK_SET_MAP.values())))
     labels_df = pd.DataFrame(columns=labels)
 
