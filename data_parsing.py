@@ -20,9 +20,10 @@ pd.set_option('display.max_colwidth', None)
 df = pd.read_csv(cwi_layer_data_path, low_memory=False, on_bad_lines='skip')
 
 df = df.dropna(subset=['strat'])
+df = df[df['strat'].str.startswith('P')]
 
-print(df['strat'].value_counts())
-print(df['strat'].nunique())
+print(df[df['lith_prim'] == 'MARL'])
+#print(df['lith_prim'].value_counts())
 
 #df = df[df['strat'].str.startswith('P')]
 
