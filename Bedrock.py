@@ -100,7 +100,8 @@ class GeoCode:
 
         return list(lst)
 
-### BEDROCK AGES ###
+"""BEDROCK AGES"""
+
 Devonian = Age('Devonian')
 Ordovician = Age('Ordovician')
 Cambrian = Age('Cambrian')

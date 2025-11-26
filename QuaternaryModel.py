@@ -55,7 +55,7 @@ class QuaternaryModel:
         self.model = None
         self.path = path
 
-    # TODO: There are only 5 quat codes that contain 'R', and thus should be treated as a massive outlier that requries a human to compute
+    # TODO: There are only 5 quat codes that contain 'R', and thus should be treated as a massive outlier that requiries a human to compute
     def train(self):
         df = Data.load()
 

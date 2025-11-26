@@ -1,16 +1,21 @@
 import numpy as np
 import pandas as pd
 import joblib
+import torch
 from sklearn.model_selection import train_test_split
 from lightgbm import LGBMClassifier
 from sklearn.metrics import accuracy_score, classification_report
+import config
 import utils
 import xgboost
 import cupy
 from sklearn.multiclass import OneVsRestClassifier
+import os
+from torch.utils.data import DataLoader
 
 import Data
 from Data import Field
+from LayerRNNModel import LayerRNN, LayerDataset
 
 AGE_DROPPED_COLUMNS = [Field.AGE_CATEGORY, Field.AGE] + Data.GENERAL_DROPPED_COLUMNS
 
@@ -32,15 +37,43 @@ AGE_CLASSIFICATIONS = {
 
 INVERSE_AGE_CLASSIFICATIONS = {v: k for k, v in AGE_CLASSIFICATIONS.items()}
 
+class RNNAgeModel:
+    def __init__(self, path, input_size, hidden_size, output_size, num_layers):
+        self.model = LayerRNN(input_size, hidden_size, output_size, num_layers)
+
+        if os.path.isfile(f'{config.MODEL_PATH}/{path}'):
+            self.model.load_state_dict(torch.load(f'{config.MODEL_PATH}/{path}'))
+
+        self.path = path
+
+    def train(self):
+        print("LOADING DATA SET")
+
+        df = Data.load('data.parquet')
+        X = df.drop(columns=[Field.STRAT])
+        y = df[Field.STRAT].astype(str).str[:1]
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y)
+
+        pca = Data.fit_pca(X_train)
+
+        X_train = pca.fit(X_train)
+        X_test = pca.fit(X_test)
+
+        train_loader = DataLoader(X_train, y_train)
+        test_loader = DataLoader(X_test, y_test)
+
+
+        pass
+
 class AgeModel:
 
     def __init__(self, path : str):
         self.model = None
         self.path = path
 
-
     def train(self):
-        df = Data.load()
+        df = Data.load('data.parquet')
 
         print("TRAINING AGE CLASSIFIER")
 
