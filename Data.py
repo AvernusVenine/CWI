@@ -1,4 +1,5 @@
 import pandas as pd
+import torch.cuda
 from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import OneHotEncoder
@@ -33,6 +34,7 @@ class Field:
     #CORE = 'core'
     #CUTTINGS = 'cuttings'
     INTERPRETATION_METHOD = 'strat_mc'
+    TEXTURE = 'texture'
 
 
 #TODO: I actually havent added first_bedrock_age yet...
@@ -45,9 +47,9 @@ def load(path):
     :param path: Data path
     :return: Dataframe
     """
-    features_df = pd.read_parquet(f'{config.DATA_PATH}/{path}')
+    df = pd.read_parquet(f'{config.DATA_PATH}/{path}')
 
-    return features_df
+    return df
 
 def fit_smote(X_df : pd.DataFrame, y_df : pd.DataFrame, count : int, label : int, label_col : str, random_state : int, data_cols : list):
     """
@@ -130,7 +132,9 @@ def load_and_embed():
     layers_df[Field.UTMN] = layers_df[Field.RELATEID].map(wells_df.set_index(Field.RELATEID)[Field.UTMN])
 
     """Embed descriptions"""
-    transformer = SentenceTransformer('all-MiniLM-L6-v2')
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    transformer = SentenceTransformer('all-MiniLM-L6-v2', device=device)
     embeddings = transformer.encode(layers_df[Field.DRILLER_DESCRIPTION].tolist(), show_progress_bar=True)
     embeddings_df = pd.DataFrame(embeddings, columns=[f"emb_{i}" for i in range(embeddings.shape[1])])
     layers_df = pd.concat([layers_df.reset_index(drop=True), embeddings_df.reset_index(drop=True)], axis=1)
@@ -138,7 +142,7 @@ def load_and_embed():
     layers_df = layers_df.drop(columns=[Field.DRILLER_DESCRIPTION])
 
     """Save unlabeled datapoints for future testing purposes"""
-    layers_df[layers_df[Field.STRAT] is None].to_parquet(f'{config.DATA_PATH}/unlabelled.parquet')
+    layers_df[layers_df[Field.STRAT].isna()].to_parquet(f'{config.DATA_PATH}/unlabelled.parquet')
 
     layers_df = layers_df.dropna(subset=[Field.STRAT])
 

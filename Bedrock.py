@@ -1,3 +1,51 @@
+import numpy as np
+import pandas as pd
+import torch
+from torch.nn.utils.rnn import pad_sequence
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+import re
+import warnings
+
+from Data import Field
+
+def encode_bedrock(df):
+    """
+    Determines whether the layer has a bedrock component, and if it does it extracts and encodes it
+    :param df: Layer dataframe
+    :return: Bedrock one hot encoded dataframe
+    """
+
+    for group in GROUP_LIST:
+        df[group.name] = False
+
+    for formation in FORMATION_LIST:
+        df[formation.name] = False
+
+    for member in MEMBER_LIST:
+        df[member.name] = False
+
+    # Claude was used to vectorize this step below based off my design, as it is way faster when using vectorized operations
+
+    code_cols = {}
+
+    for key, value in BEDROCK_CODE_MAP.items():
+        cols = []
+
+        for bedrock in value.bedrocks:
+            for unit in bedrock.get_lineage():
+                if isinstance(unit, (Group, Formation, Member)):
+                    cols.append(unit.name)
+
+        code_cols[key] = cols
+
+    for key, value in code_cols.items():
+        mask = df[Field.STRAT] == key
+
+        if value:
+            df.loc[mask, list(set(value))] = True
+
+    return df
+
 class Bedrock:
 
     def __init__(self, name : str, parent=None):
@@ -13,7 +61,6 @@ class Bedrock:
             unit = unit.parent
 
         return lineage
-
 
 class Age(Bedrock):
     pass
@@ -107,14 +154,6 @@ Ordovician = Age('Ordovician')
 Cambrian = Age('Cambrian')
 Precambrian = Age('Precambrian')
 Cretaceous = Age('Cretaceous')
-
-AGE_LIST = [
-    Devonian,
-    Ordovician,
-    Cambrian,
-    Precambrian,
-    Cretaceous
-]
 
 ### BEDROCK GROUPS ###
 Cedar_Valley = Group('Cedar Valley', parent=Devonian)

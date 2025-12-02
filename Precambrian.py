@@ -1,6 +1,46 @@
-from geopandas.base import GeoPandasBase
+import numpy as np
+import pandas as pd
+import torch
+from torch.nn.utils.rnn import pad_sequence
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+import re
+import warnings
 
+from Data import Field
 from Bedrock import GeoCode
+
+def encode_precambrian(df):
+    """
+    Determines whether the layer has a precambrian component, and if it does it extracts and encodes it
+    :param df: Layer dataframe
+    :return: Precambrian one hot encoded dataframe
+    """
+
+    for category in CATEGORY_LIST:
+        df[category.name] = False
+
+    for lithology in LITHOLOGY_LIST:
+        df[lithology.name] = False
+
+    code_cols = {}
+
+    for key, value in PRECAMBRIAN_LITHOLOGY_MAP.items():
+        cols = []
+
+        for bedrock in value.bedrocks:
+            for unit in bedrock.get_lineage():
+                if isinstance(unit, Lithology):
+                    cols.append(unit.name)
+
+        code_cols[key] = cols
+
+    for key, value in code_cols.items():
+        mask = df[Field.STRAT] == key
+
+        if value:
+            df.loc[mask, list(set(value))] = True
+
+    return df
 
 
 class Precambrian:
@@ -107,6 +147,21 @@ Ultramafic = Lithology('Ultramafic')
 Fault = Lithology('Fault')
 Dike = Lithology('Dike')
 
+CATEGORY_LIST = [
+    Metamorphic,
+    Igneous,
+    Sedimentary,
+    Metasediment,
+    Metaigneous,
+    Volcanic,
+    Intrusive,
+    Felsic,
+    Intermediate,
+    Mafic,
+    Ultramafic,
+    Fault,
+    Dike
+]
 
 ### PRECAMBRIAN LITHOLOGY ###
 Slate = Lithology('Slate', parents=Metasediment)
@@ -143,6 +198,8 @@ Siltstone = Lithology('Siltstone', parents=Sedimentary)
 Shale = Lithology('Shale', parents=Sedimentary)
 Chert = Lithology('Chert', parents=Sedimentary)
 Iron_Formation = Lithology('Iron Formation', parents=Sedimentary)
+
+LITHOLOGY_LIST = []
 
 ### MAPPING LITHOLOGIES INSTEAD OF CODES ###
 PRECAMBRIAN_LITHOLOGY_MAP = {
