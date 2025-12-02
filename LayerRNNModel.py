@@ -6,6 +6,7 @@ import os
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 import joblib
+import json
 
 import Age, Texture, Bedrock, Precambrian
 import Data
@@ -14,24 +15,29 @@ import config, utils
 
 
 class LayerDataset(Dataset):
-    def __init__(self, X, y):
+    def __init__(self, X, ages, textures, groups, formations, members, categories, lithologies):
         self.data = X
-        self.labels = y
+        self.ages = ages
+        self.textures = textures
+        self.groups = groups
+        self.formations = formations
+        self.members = members
+        self.categories = categories
+        self.lithologies = lithologies
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         data = torch.tensor(self.data[idx], dtype=torch.float32)
-        label = self.labels[idx]
         label_dict = {
-            'age': torch.tensor(label['age'], dtype=torch.long),
-            'texture': torch.tensor(label['texture'], dtype=torch.long),
-            'group': torch.tensor(label['group'], dtype=torch.float32),
-            'formation': torch.tensor(label['formation'], dtype=torch.float32),
-            'member': torch.tensor(label['member'], dtype=torch.float32),
-            'category': torch.tensor(label['category'], dtype=torch.float32),
-            'lithology': torch.tensor(label['lithology'], dtype=torch.float32),
+            'age': torch.tensor(self.ages[idx], dtype=torch.long),
+            'texture': torch.tensor(self.textures[idx], dtype=torch.long),
+            'group': torch.tensor(self.groups[idx], dtype=torch.float32),
+            'formation': torch.tensor(self.formations[idx], dtype=torch.float32),
+            'member': torch.tensor(self.members[idx], dtype=torch.float32),
+            'category': torch.tensor(self.categories[idx], dtype=torch.float32),
+            'lithology': torch.tensor(self.lithologies[idx], dtype=torch.float32),
         }
 
         return data, label_dict
@@ -286,7 +292,11 @@ class LayerRNNModel:
             self.pca = joblib.load(f'{self.path}.pca')
 
         if self.model is None:
-            self.model =
+            with open(f'{self.path}.json', 'r') as f:
+                params = json.load(f)
+
+            self.model = LayerRNN(params['INPUT_SIZE'], params['HIDDEN_SIZE'], params['NUM_LAYERS'])
+            self.model.load_state_dict(torch.load(f'{self.path}.mdl'))
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -307,7 +317,7 @@ class LayerRNNModel:
 
             df = Data.load('data.parquet')
 
-            print('ENCODING DATA SET')
+            print('ENCODING DATA')
             df = Age.encode_age(df)
             df = Texture.encode_texture(df)
             df = Bedrock.encode_bedrock(df)
@@ -359,7 +369,6 @@ class LayerRNNModel:
             hole_transformed = np.concatenate([non_embedding_cols, pca_cols], axis=1)
             X_test_pca.append(hole_transformed)
 
-        y = 
 
         train_dataset = LayerDataset(X_train_pca, y_train)
         test_dataset = LayerDataset(X_test_pca, y_test)
@@ -386,3 +395,11 @@ class LayerRNNModel:
 
             if test_loss < best_loss:
                 torch.save(self.model.state_dict(), f'{self.path}.mdl')
+                params = {
+                    'INPUT_SIZE': self.model.input_size,
+                    'HIDDEN_SIZE': self.model.hidden_size,
+                    'NUM_LAYERS': self.model.num_layers
+                }
+
+                with open(f'{self.path}.json', 'w') as f:
+                    json.dump(params, f)

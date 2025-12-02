@@ -35,6 +35,7 @@ class Field:
     #CUTTINGS = 'cuttings'
     INTERPRETATION_METHOD = 'strat_mc'
     TEXTURE = 'texture'
+    LITH_PRIM = 'lith_prim'
 
 
 #TODO: I actually havent added first_bedrock_age yet...

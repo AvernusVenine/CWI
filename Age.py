@@ -8,7 +8,18 @@ import warnings
 
 from Data import Field
 
-AGE_LIST = ['B', 'C', 'D', 'F', 'K', 'O', 'P', 'Q', 'R', 'U', 'X', 'Y', 'G', 'R', 'A', 'E', 'M']
+AGE_LIST = ['B', 'C', 'D', 'F', 'K', 'O', 'P', 'Q', 'R', 'U', 'X', 'Y', 'G', 'A', 'E', 'M']
+
+def decode_age(val):
+    """
+    Decodes a given age
+    :param val: Encoded age
+    :return: Decoded age
+    """
+    encoder = LabelEncoder()
+    encoder.fit(AGE_LIST)
+
+    return encoder.inverse_transform(val)
 
 def encode_age(df):
     """

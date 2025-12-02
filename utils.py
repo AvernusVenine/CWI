@@ -5,8 +5,111 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 import re
 import warnings
 
+import Bedrock
+import Texture
+from Bedrock import GeoCode
+import Precambrian
+from Precambrian import PrecambrianCode
 from Data import Field
 import Age
+
+def compile_geocode(label_dict):
+    """
+    Converts a list of outputs from the RNN Model into an interpretable code
+    :param label_dict: Label output dictionary
+    :return: Stratigraphy Code
+    """
+    age = Age.decode_age(label_dict['age'])[0]
+
+    """Simple one to one conversions of basic geocodes"""
+    if age == 'F':
+        return 'RMMF'
+    if age == 'X':
+        return 'PITT'
+    if age == 'Y':
+        return 'PVMT'
+    if age == 'B':
+        return 'BSMT'
+    if age == 'U':
+        return 'UREG'
+
+    """Quaternary/Recent codes"""
+    if age in ('Q', 'R'):
+        color_dict = {
+            'BROWN' : 'B',
+            'GRAY' : 'G',
+            'BLUE' : 'G',
+            'BLACK' : 'K',
+            'RED' : 'R',
+            'GREEN' : 'L',
+            'ORANGE' : 'O',
+            'WHITE' : 'W',
+            'YELLOW' : 'Y',
+            'PINK' : 'U',
+            'PURPLE' : 'U',
+            'VARIED' : 'U'
+        }
+
+        color = 'U'
+
+        colors = [col for col in color_dict.keys() if label_dict.get(col, 0) == 1]
+        if len(set(colors)) == 1:
+            color = color_dict[colors[0]]
+
+        texture = Texture.decode_texture(label_dict['texture'])[0]
+
+        return f'{age}{texture}U{color}'
+
+    """Well Ordered Bedrock codes"""
+    if age in ('C', 'D', 'O', 'K', 'G'):
+        groups = [Bedrock.GROUP_DICT[col.name] for col in Bedrock.GROUP_LIST if label_dict.get(col.name, 0) == 1]
+        formations = [Bedrock.FORMATION_DICT[col.name] for col in Bedrock.FORMATION_LIST if label_dict.get(col.name, 0) == 1]
+        members = [Bedrock.MEMBER_DICT[col.name] for col in Bedrock.MEMBER_LIST if label_dict.get(col.name, 0) == 1]
+
+        labels = groups + formations + members
+
+        """Undifferentiated codes"""
+        if not labels:
+            if age == 'C':
+                return 'CAMB'
+            if age == 'D':
+                return 'DEVO'
+            if age == 'K':
+                return 'KRET'
+            if age == 'O':
+                return 'ORDO'
+            if age == 'G':
+                return 'PCUU'
+
+        geocode = GeoCode(labels)
+
+        for key, value in Bedrock.BEDROCK_CODE_MAP.items():
+            if value == geocode:
+                return key
+
+    """Precambrian codes"""
+    if age in ('P', 'A', 'E', 'M'):
+        categories = [col.name for col in Precambrian.CATEGORY_LIST if label_dict.get(col.name, 0) == 1]
+        lithologies = [col.name for col in Precambrian.LITHOLOGY_LIST if label_dict.get(col.name, 0) == 1]
+
+        labels = categories + lithologies
+
+        if not labels:
+            return 'PCUU'
+
+        if age == 'P':
+            age = 'PU'
+        else:
+            age = f'P{age}'
+
+        geocode = PrecambrianCode(labels)
+
+        for key, value in Precambrian.PRECAMBRIAN_MAP():
+            if value == geocode:
+                return f'{age}{key}'
+
+    """Very rarely a result may yield labels that dont have a code assigned yet (like 4+ formations combined)"""
+    return 'EQUIVALENT CODE NOT FOUND IN DATABASE'
 
 def encode_hardness(df):
     """
@@ -88,8 +191,14 @@ def sequence_individual(df, relate_id):
     hole = df[df[Field.RELATEID] == relate_id]
     hole = hole.sort_values([Field.DEPTH_BOT, Field.DEPTH_TOP], ascending=[True, True])
 
-    X = hole.drop(columns=[Field.STRAT, Field.RELATEID]).to_numpy(dtype=float)
-    y = hole[Field.AGE, ].to_numpy()
+    y_cols = ([Field.AGE, Field.TEXTURE] + [group.name for group in Bedrock.GROUP_LIST] +
+              [formation.name for formation in Bedrock.FORMATION_LIST] +
+              [member.name for member in Bedrock.MEMBER_LIST] +
+              [category.name for category in Precambrian.CATEGORY_LIST] +
+              [lithology.name for lithology in Precambrian.LITHOLOGY_LIST])
+
+    X = hole.drop(columns=[Field.STRAT, Field.RELATEID] + y_cols).to_numpy(dtype=float)
+    y = hole[y_cols].to_numpy()
 
     return X, y
 
@@ -108,8 +217,14 @@ def sequence_layers(df):
     for _, hole in holes:
         hole = hole.sort_values([Field.DEPTH_BOT, Field.DEPTH_TOP], ascending=[True, True])
 
-        X.append(hole.drop(columns=[Field.STRAT, Field.RELATEID]).to_numpy(dtype=float))
-        y.append(hole[Field.STRAT].to_numpy())
+        y_cols = ([Field.AGE, Field.TEXTURE] + [group.name for group in Bedrock.GROUP_LIST] +
+                  [formation.name for formation in Bedrock.FORMATION_LIST] +
+                  [member.name for member in Bedrock.MEMBER_LIST] +
+                  [category.name for category in Precambrian.CATEGORY_LIST] +
+                  [lithology.name for lithology in Precambrian.LITHOLOGY_LIST])
+
+        X.append(hole.drop(columns=[Field.STRAT, Field.RELATEID] + y_cols).to_numpy(dtype=float))
+        y.append(hole[y_cols].to_numpy())
 
     return X, y
 

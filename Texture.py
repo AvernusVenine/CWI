@@ -10,6 +10,17 @@ from Data import Field
 
 TEXTURE_LIST = ['B', 'C', 'F', 'G', 'I', 'J', 'H', 'L', 'W', 'P', 'N', 'S', 'T', 'U']
 
+def decode_texture(val):
+    """
+    Decodes a given texture
+    :param val: Encoded texture
+    :return: Decoded texture
+    """
+    encoder = LabelEncoder()
+    encoder.fit(TEXTURE_LIST)
+
+    return encoder.inverse_transform(val)
+
 def encode_texture(df):
     """
     Determines whether the layer has a texture component, and if it does it extracts and encodes it

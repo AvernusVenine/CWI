@@ -173,8 +173,9 @@ GROUP_LIST = [
     Prairie_Du_Chien,
     Tunnel_City
 ]
+GROUP_DICT = {group.name: group for group in GROUP_LIST}
 
-### BEDROCK FORMATIONS ###
+"""BEDROCK FORMATIONS"""
 Cretaceous_Regolith = Formation('Cretaceous Regolith', parent=Cretaceous)
 Carlile_Shale = Formation('Carlile Shale', parent=Cretaceous)
 Greenhorn_Limestone = Formation('Greenhorn Limestone', parent=Cretaceous)
@@ -254,6 +255,7 @@ FORMATION_LIST = [
     Fond_Du_Lac,
     Solor_Church
 ]
+FORMATION_DICT = {formation.name: formation for formation in FORMATION_LIST}
 
 ### BEDROCK MEMBERS ###
 Blue_Hill = Member('Blue Hill', parent=Carlile_Shale)
@@ -317,6 +319,7 @@ MEMBER_LIST = [
     Reno,
     Red_Clastics,
 ]
+MEMBER_DICT = {member.name: member for member in MEMBER_LIST}
 
 ### BEDROCK UNIT CODES ###
 
