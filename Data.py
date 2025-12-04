@@ -52,6 +52,7 @@ def load(path):
 
     return df
 
+#TODO: This no longer works with the RNN, need to create a different version
 def fit_smote(X_df : pd.DataFrame, y_df : pd.DataFrame, count : int, label : int, label_col : str, random_state : int, data_cols : list):
     """
     A custom SMOTE function that only creates data points from given data columns while directly duplicating the rest

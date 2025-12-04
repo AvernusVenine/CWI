@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 import os
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 import joblib
 import json
@@ -13,13 +14,14 @@ import Data
 from Data import Field
 import config, utils
 
+import Bedrock, Precambrian
 
 class LayerDataset(Dataset):
-    def __init__(self, X, ages, textures, groups, formations, members, categories, lithologies):
+    def __init__(self, X, y):
         self.data = X
-        self.ages = ages
-        self.textures = textures
-        self.groups = groups
+        self.ages = y[0]
+        self.textures = y[1]
+        self.groups = y[2:len(Bedrock.GROUP_LIST)+2]
         self.formations = formations
         self.members = members
         self.categories = categories
@@ -56,7 +58,7 @@ class LayerRNN(nn.Module):
         self.num_categories = len(Precambrian.CATEGORY_LIST)
         self.num_lithologies = len(Precambrian.LITHOLOGY_LIST)
 
-        self.feature_rnn = nn.RNN(
+        self.feature_rnn = nn.LSTM(
             input_size=input_size,
             hidden_size=self.hidden_size,
             num_layers=num_layers,
@@ -261,6 +263,12 @@ class LayerRNNModel:
         self.model = None
         self.pca = None
 
+        self.utme_scaler = None
+        self.utmn_scaler = None
+        self.elevation_scaler = None
+        self.depth_top_scaler = None
+        self.depth_bot_scaler = None
+
         self.path = path
         self.loss_func = RNNLoss()
 
@@ -333,11 +341,67 @@ class LayerRNNModel:
 
             self.df = df
 
-        X, y = utils.sequence_layers(self.df)
+        X, y, y_cols = utils.sequence_layers(self.df)
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=random_state)
 
-        print("PERFORMING PCA")
+        print("FITTING SCALERS")
+
+        """Set all null spatial points to a set coordinate not found within Minnesota"""
+        self.utme_scaler = StandardScaler()
+        utme_idx = self.df.columns.get_loc(Field.UTME)
+        utme = np.concatenate(
+            [hole[utme_idx] for hole in X_train],
+            axis=0
+        )
+        utme[np.isnan(utme)] = self.df[Field.UTME].min() * .9
+        self.utme_scaler.fit(utme)
+
+        self.utmn_scaler = StandardScaler()
+        utmn_idx = self.df.columns.get_loc(Field.UTMN)
+        utmn = np.concatenate(
+            [hole[utmn_idx] for hole in X_train],
+            axis=0
+        )
+        utmn[np.isnan(utmn)] = self.df[Field.UTMN].min() * .9
+        self.utme_scaler.fit(utmn)
+
+        self.elevation_scaler = StandardScaler()
+        elevation_idx = self.df.columns.get_loc(Field.ELEVATION)
+        elevation = np.concatenate(
+            [hole[elevation_idx] for hole in X_train],
+            axis=0
+        )
+        elevation[np.isnan(elevation)] = self.df[Field.ELEVATION].min() * .8
+        self.elevation_scaler.fit(elevation)
+
+        """Since depth will always be greater than 0, we set null values to a relatively small negative value"""
+        self.depth_top_scaler = StandardScaler()
+        top_idx = self.df.columns.get_loc(Field.DEPTH_TOP)
+        depth_top = np.concatenate(
+            [hole[top_idx] for hole in X_train],
+            axis=0
+        )
+        depth_top[np.isnan(depth_top)] = -25
+        self.depth_top_scaler.fit(depth_top)
+
+        self.depth_bot_scaler = StandardScaler()
+        bot_idx = self.df.columns.get_loc(Field.DEPTH_BOT)
+        depth_bot = np.concatenate(
+            [hole[bot_idx] for hole in X_train],
+            axis=0
+        )
+        depth_bot[np.isnan(depth_bot)] = -25
+        self.depth_top_scaler.fit(depth_bot)
+
+        joblib.dump(self.utme_scaler, f'{self.path}.utme.scl')
+        joblib.dump(self.utmn_scaler, f'{self.path}.utmn.scl')
+        joblib.dump(self.elevation_scaler, f'{self.path}.elevation.scl')
+        joblib.dump(self.depth_top_scaler, f'{self.path}.top.scl')
+        joblib.dump(self.depth_bot_scaler, f'{self.path}.bot.scl')
+
+        print("FITTING PCA")
+
         n_text_cols = 384
 
         #Claude used to bugfix this line that unpacks holes into their layers again for PCA
@@ -350,10 +414,18 @@ class LayerRNNModel:
         joblib.dump(pca, f'{self.path}.pca')
         self.pca = pca
 
+        print("APPLYING DATA REFINEMENTS")
+
         X_train_pca = []
 
         for hole in X_train:
             non_embedding_cols = hole[:, :-n_text_cols]
+
+            non_embedding_cols[:, utme_idx] = self.utme_scaler.transform(non_embedding_cols[:, utme_idx])
+            non_embedding_cols[:, utmn_idx] = self.utmn_scaler.transform(non_embedding_cols[:, utmn_idx])
+            non_embedding_cols[:, elevation_idx] = self.elevation_scaler.transform(non_embedding_cols[:, elevation_idx])
+            non_embedding_cols[:, top_idx] = self.depth_top_scaler.transform(non_embedding_cols[:, top_idx])
+            non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(non_embedding_cols[:, bot_idx])
 
             pca_cols = pca.transform(hole[:, -n_text_cols:])
 
@@ -364,11 +436,16 @@ class LayerRNNModel:
         for hole in X_test:
             non_embedding_cols = hole[:, :-n_text_cols]
 
+            non_embedding_cols[:, utme_idx] = self.utme_scaler.transform(non_embedding_cols[:, utme_idx])
+            non_embedding_cols[:, utmn_idx] = self.utmn_scaler.transform(non_embedding_cols[:, utmn_idx])
+            non_embedding_cols[:, elevation_idx] = self.elevation_scaler.transform(non_embedding_cols[:, elevation_idx])
+            non_embedding_cols[:, top_idx] = self.depth_top_scaler.transform(non_embedding_cols[:, top_idx])
+            non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(non_embedding_cols[:, bot_idx])
+
             pca_cols = pca.transform(hole[:, -n_text_cols:])
 
             hole_transformed = np.concatenate([non_embedding_cols, pca_cols], axis=1)
             X_test_pca.append(hole_transformed)
-
 
         train_dataset = LayerDataset(X_train_pca, y_train)
         test_dataset = LayerDataset(X_test_pca, y_test)

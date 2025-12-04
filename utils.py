@@ -207,26 +207,26 @@ def sequence_layers(df):
     """
     Helper function that compiles and orders the layer dataset into ordered holes
     :param df: Layer dataframe
-    :return: Hole dataset, Hole labels
+    :return: Hole dataset, Hole labels, Y Column List for indexing
     """
     holes = df.groupby(Field.RELATEID)
 
     X = []
     y = []
 
+    y_cols = ([Field.AGE, Field.TEXTURE] + [group.name for group in Bedrock.GROUP_LIST] +
+              [formation.name for formation in Bedrock.FORMATION_LIST] +
+              [member.name for member in Bedrock.MEMBER_LIST] +
+              [category.name for category in Precambrian.CATEGORY_LIST] +
+              [lithology.name for lithology in Precambrian.LITHOLOGY_LIST])
+
     for _, hole in holes:
         hole = hole.sort_values([Field.DEPTH_BOT, Field.DEPTH_TOP], ascending=[True, True])
-
-        y_cols = ([Field.AGE, Field.TEXTURE] + [group.name for group in Bedrock.GROUP_LIST] +
-                  [formation.name for formation in Bedrock.FORMATION_LIST] +
-                  [member.name for member in Bedrock.MEMBER_LIST] +
-                  [category.name for category in Precambrian.CATEGORY_LIST] +
-                  [lithology.name for lithology in Precambrian.LITHOLOGY_LIST])
 
         X.append(hole.drop(columns=[Field.STRAT, Field.RELATEID] + y_cols).to_numpy(dtype=float))
         y.append(hole[y_cols].to_numpy())
 
-    return X, y
+    return X, y, y_cols
 
 def rnn_collate_fn(batch):
     """
