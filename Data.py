@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import OneHotEncoder
 import random
+import matplotlib.pyplot as plt
 
 import config
 
@@ -97,11 +98,10 @@ def fit_smote(X_df : pd.DataFrame, y_df : pd.DataFrame, count : int, label : int
 
     return pd.concat([X_df, X_new], ignore_index=True), pd.concat([y_df, y_new], ignore_index=True)
 
-def load_and_embed():
+def load_and_embed(subset=None):
     """
     Loads the dataset from its raw form and embeds the text features then saves it to save time
-    :param path: Raw data directory path
-    :param save_path: Save directory path
+    :param subset: Percentage of dataset to use
     :return: Embedded dataframe
     """
 
@@ -113,8 +113,11 @@ def load_and_embed():
     wells_df = pd.read_csv(cwi_well_data_path, low_memory=False, on_bad_lines='skip')
     layers_df = pd.read_csv(cwi_layer_data_path, low_memory=False, on_bad_lines='skip')
 
+    if subset:
+        layers_df = layers_df.sample(frac=subset)
+
     layers_df = layers_df.drop(columns=['objectid', 'c5st_seq_no', 'wellid', 'concat', 'stratcode_gen', 'stratcode_detail',
-                                'lith_prim', 'lith_sec', 'lith_minor'])
+                                'lith_sec', 'lith_minor'])
 
     layers_df.loc[layers_df[Field.DEPTH_BOT].isna(), Field.DEPTH_BOT] = layers_df[Field.DEPTH_TOP]
     layers_df = layers_df.fillna(value={
@@ -174,3 +177,22 @@ def fit_pca(df, n_components=.95):
     pca.fit(df)
 
     return pca
+
+def pca_components_graph():
+    """
+    Function used to determine the optimal number of components for embedding PCA
+    :return:
+    """
+    df = load('data.parquet')
+
+    pca = PCA()
+    pca.fit(df[[f"emb_{i}" for i in range(384)]])
+
+    variance = pca.explained_variance_ratio_
+
+    plt.figure()
+    plt.plot(range(1, len(variance)+1), variance.cumsum())
+    plt.xlabel('Number of Components')
+    plt.ylabel('Variance Explained')
+    plt.grid(True)
+    plt.show()

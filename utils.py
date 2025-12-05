@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -197,11 +198,10 @@ def sequence_individual(df, relate_id):
               [category.name for category in Precambrian.CATEGORY_LIST] +
               [lithology.name for lithology in Precambrian.LITHOLOGY_LIST])
 
-    X = hole.drop(columns=[Field.STRAT, Field.RELATEID] + y_cols).to_numpy(dtype=float)
+    X = hole.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM] + y_cols).to_numpy(dtype=float)
     y = hole[y_cols].to_numpy()
 
     return X, y
-
 
 def sequence_layers(df):
     """
@@ -223,7 +223,7 @@ def sequence_layers(df):
     for _, hole in holes:
         hole = hole.sort_values([Field.DEPTH_BOT, Field.DEPTH_TOP], ascending=[True, True])
 
-        X.append(hole.drop(columns=[Field.STRAT, Field.RELATEID] + y_cols).to_numpy(dtype=float))
+        X.append(hole.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM] + y_cols).to_numpy(dtype=float))
         y.append(hole[y_cols].to_numpy())
 
     return X, y, y_cols
@@ -236,7 +236,6 @@ def rnn_collate_fn(batch):
     :return: Padded data, padded labels, original lengths
     """
     features, labels = zip(*batch)
-    lengths = torch.tensor([len(f) for f in features])
 
     features_padded = pad_sequence(features, batch_first=True, padding_value=0.0)
 
@@ -258,4 +257,4 @@ def rnn_collate_fn(batch):
         'lithology': lithology_padded,
     }
 
-    return features_padded, labels_padded, lengths
+    return features_padded, labels_padded

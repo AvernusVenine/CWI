@@ -34,7 +34,7 @@ def encode_precambrian(df):
         code_cols[key] = cols
 
     for key, value in code_cols.items():
-        mask = df[Field.LITH_PRIM] == key
+        mask = (df[Field.LITH_PRIM] == key) & (df[Field.STRAT].str.startswith('P', na=False))
 
         if value:
             df.loc[mask, list(set(value))] = True

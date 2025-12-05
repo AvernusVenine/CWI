@@ -18,14 +18,19 @@ import Bedrock, Precambrian
 
 class LayerDataset(Dataset):
     def __init__(self, X, y):
+        group_idx = len(Bedrock.GROUP_LIST) + 2
+        formation_idx = group_idx + len(Bedrock.FORMATION_LIST)
+        member_idx = formation_idx + len(Bedrock.MEMBER_LIST)
+        category_idx = member_idx + len(Precambrian.CATEGORY_LIST)
+
         self.data = X
-        self.ages = y[0]
-        self.textures = y[1]
-        self.groups = y[2:len(Bedrock.GROUP_LIST)+2]
-        self.formations = formations
-        self.members = members
-        self.categories = categories
-        self.lithologies = lithologies
+        self.ages = [hole[:, 0].astype(np.int64) for hole in y]
+        self.textures = [hole[:, 1].astype(np.int64) for hole in y]
+        self.groups = [hole[:, 2:group_idx].astype(np.float32) for hole in y]
+        self.formations = [hole[:, group_idx:formation_idx].astype(np.float32) for hole in y]
+        self.members = [hole[:, formation_idx:member_idx].astype(np.float32) for hole in y]
+        self.categories = [hole[:, member_idx:category_idx].astype(np.float32) for hole in y]
+        self.lithologies = [hole[:, category_idx:].astype(np.float32) for hole in y]
 
     def __len__(self):
         return len(self.data)
@@ -274,6 +279,8 @@ class LayerRNNModel:
 
         self.df = None
 
+        self.n_text_cols = 384
+
     def test(self, relate_id):
         if self.df is None:
             print("LOADING DATA SET")
@@ -306,9 +313,38 @@ class LayerRNNModel:
             self.model = LayerRNN(params['INPUT_SIZE'], params['HIDDEN_SIZE'], params['NUM_LAYERS'])
             self.model.load_state_dict(torch.load(f'{self.path}.mdl'))
 
+        if self.utme_scaler is None:
+            self.utme_scaler = joblib.load(f'{self.path}.utme.scl')
+        if self.utmn_scaler is None:
+            self.utmn_scaler = joblib.load(f'{self.path}.utmn.scl')
+        if self.elevation_scaler is None:
+            self.elevation_scaler = joblib.load(f'{self.path}.elevation.scl')
+        if self.depth_top_scaler is None:
+            self.depth_top_scaler = joblib.load(f'{self.path}.top.scl')
+        if self.depth_bot_scaler is None:
+            self.depth_bot_scaler = joblib.load(f'{self.path}.bot.scl')
+
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         X, y = utils.sequence_individual(self.df, relate_id)
+
+        utme_idx = self.df.columns.get_loc(Field.UTME)
+        utmn_idx = self.df.columns.get_loc(Field.UTMN)
+        elevation_idx = self.df.columns.get_loc(Field.ELEVATION)
+        top_idx = self.df.columns.get_loc(Field.DEPTH_TOP)
+        bot_idx = self.df.columns.get_loc(Field.DEPTH_BOT)
+
+        non_embedding_cols = X[:, :-self.n_text_cols]
+
+        non_embedding_cols[:, utme_idx] = self.utme_scaler.transform(non_embedding_cols[:, utme_idx])
+        non_embedding_cols[:, utmn_idx] = self.utmn_scaler.transform(non_embedding_cols[:, utmn_idx])
+        non_embedding_cols[:, elevation_idx] = self.elevation_scaler.transform(non_embedding_cols[:, elevation_idx])
+        non_embedding_cols[:, top_idx] = self.depth_top_scaler.transform(non_embedding_cols[:, top_idx])
+        non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(non_embedding_cols[:, bot_idx])
+
+        pca_cols = self.pca.transform(X[:, -self.n_text_cols:])
+
+        X = np.concatenate([non_embedding_cols, pca_cols], axis=1)
 
         X = torch.tensor(X, dtype=torch.float32).unsqueeze(0).to(device)
 
@@ -316,8 +352,6 @@ class LayerRNNModel:
 
         with torch.no_grad():
             output = self.model(X)
-
-        print('f')
 
     def train(self, random_state=0, max_epochs=10, lr=1e-3):
         if self.df is None:
@@ -351,48 +385,48 @@ class LayerRNNModel:
         self.utme_scaler = StandardScaler()
         utme_idx = self.df.columns.get_loc(Field.UTME)
         utme = np.concatenate(
-            [hole[utme_idx] for hole in X_train],
+            [hole[:, utme_idx] for hole in X_train],
             axis=0
         )
         utme[np.isnan(utme)] = self.df[Field.UTME].min() * .9
-        self.utme_scaler.fit(utme)
+        self.utme_scaler.fit(utme.reshape(-1, 1))
 
         self.utmn_scaler = StandardScaler()
         utmn_idx = self.df.columns.get_loc(Field.UTMN)
         utmn = np.concatenate(
-            [hole[utmn_idx] for hole in X_train],
+            [hole[:, utmn_idx] for hole in X_train],
             axis=0
         )
         utmn[np.isnan(utmn)] = self.df[Field.UTMN].min() * .9
-        self.utme_scaler.fit(utmn)
+        self.utmn_scaler.fit(utmn.reshape(-1, 1))
 
         self.elevation_scaler = StandardScaler()
         elevation_idx = self.df.columns.get_loc(Field.ELEVATION)
         elevation = np.concatenate(
-            [hole[elevation_idx] for hole in X_train],
+            [hole[:, elevation_idx] for hole in X_train],
             axis=0
         )
         elevation[np.isnan(elevation)] = self.df[Field.ELEVATION].min() * .8
-        self.elevation_scaler.fit(elevation)
+        self.elevation_scaler.fit(elevation.reshape(-1, 1))
 
         """Since depth will always be greater than 0, we set null values to a relatively small negative value"""
         self.depth_top_scaler = StandardScaler()
         top_idx = self.df.columns.get_loc(Field.DEPTH_TOP)
         depth_top = np.concatenate(
-            [hole[top_idx] for hole in X_train],
+            [hole[:, top_idx] for hole in X_train],
             axis=0
         )
         depth_top[np.isnan(depth_top)] = -25
-        self.depth_top_scaler.fit(depth_top)
+        self.depth_top_scaler.fit(depth_top.reshape(-1, 1))
 
         self.depth_bot_scaler = StandardScaler()
         bot_idx = self.df.columns.get_loc(Field.DEPTH_BOT)
         depth_bot = np.concatenate(
-            [hole[bot_idx] for hole in X_train],
+            [hole[:, bot_idx] for hole in X_train],
             axis=0
         )
         depth_bot[np.isnan(depth_bot)] = -25
-        self.depth_top_scaler.fit(depth_bot)
+        self.depth_bot_scaler.fit(depth_bot.reshape(-1, 1))
 
         joblib.dump(self.utme_scaler, f'{self.path}.utme.scl')
         joblib.dump(self.utmn_scaler, f'{self.path}.utmn.scl')
@@ -402,11 +436,9 @@ class LayerRNNModel:
 
         print("FITTING PCA")
 
-        n_text_cols = 384
-
         #Claude used to bugfix this line that unpacks holes into their layers again for PCA
         embeddings = np.concatenate(
-            [hole[:, -n_text_cols:] for hole in X_train],
+            [hole[:, -self.n_text_cols:] for hole in X_train],
             axis=0
         )
 
@@ -419,30 +451,40 @@ class LayerRNNModel:
         X_train_pca = []
 
         for hole in X_train:
-            non_embedding_cols = hole[:, :-n_text_cols]
+            non_embedding_cols = hole[:, :-self.n_text_cols]
 
-            non_embedding_cols[:, utme_idx] = self.utme_scaler.transform(non_embedding_cols[:, utme_idx])
-            non_embedding_cols[:, utmn_idx] = self.utmn_scaler.transform(non_embedding_cols[:, utmn_idx])
-            non_embedding_cols[:, elevation_idx] = self.elevation_scaler.transform(non_embedding_cols[:, elevation_idx])
-            non_embedding_cols[:, top_idx] = self.depth_top_scaler.transform(non_embedding_cols[:, top_idx])
-            non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(non_embedding_cols[:, bot_idx])
+            non_embedding_cols[:, utme_idx] = self.utme_scaler.transform(
+                non_embedding_cols[:, utme_idx].reshape(-1, 1)).ravel()
+            non_embedding_cols[:, utmn_idx] = self.utmn_scaler.transform(
+                non_embedding_cols[:, utmn_idx].reshape(-1, 1)).ravel()
+            non_embedding_cols[:, elevation_idx] = self.elevation_scaler.transform(
+                non_embedding_cols[:, elevation_idx].reshape(-1, 1)).ravel()
+            non_embedding_cols[:, top_idx] = self.depth_top_scaler.transform(
+                non_embedding_cols[:, top_idx].reshape(-1, 1)).ravel()
+            non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(
+                non_embedding_cols[:, bot_idx].reshape(-1, 1)).ravel()
 
-            pca_cols = pca.transform(hole[:, -n_text_cols:])
+            pca_cols = pca.transform(hole[:, -self.n_text_cols:])
 
             hole_transformed = np.concatenate([non_embedding_cols, pca_cols], axis=1)
             X_train_pca.append(hole_transformed)
 
         X_test_pca = []
         for hole in X_test:
-            non_embedding_cols = hole[:, :-n_text_cols]
+            non_embedding_cols = hole[:, :-self.n_text_cols]
 
-            non_embedding_cols[:, utme_idx] = self.utme_scaler.transform(non_embedding_cols[:, utme_idx])
-            non_embedding_cols[:, utmn_idx] = self.utmn_scaler.transform(non_embedding_cols[:, utmn_idx])
-            non_embedding_cols[:, elevation_idx] = self.elevation_scaler.transform(non_embedding_cols[:, elevation_idx])
-            non_embedding_cols[:, top_idx] = self.depth_top_scaler.transform(non_embedding_cols[:, top_idx])
-            non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(non_embedding_cols[:, bot_idx])
+            non_embedding_cols[:, utme_idx] = self.utme_scaler.transform(
+                non_embedding_cols[:, utme_idx].reshape(-1, 1)).ravel()
+            non_embedding_cols[:, utmn_idx] = self.utmn_scaler.transform(
+                non_embedding_cols[:, utmn_idx].reshape(-1, 1)).ravel()
+            non_embedding_cols[:, elevation_idx] = self.elevation_scaler.transform(
+                non_embedding_cols[:, elevation_idx].reshape(-1, 1)).ravel()
+            non_embedding_cols[:, top_idx] = self.depth_top_scaler.transform(
+                non_embedding_cols[:, top_idx].reshape(-1, 1)).ravel()
+            non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(
+                non_embedding_cols[:, bot_idx].reshape(-1, 1)).ravel()
 
-            pca_cols = pca.transform(hole[:, -n_text_cols:])
+            pca_cols = pca.transform(hole[:, -self.n_text_cols:])
 
             hole_transformed = np.concatenate([non_embedding_cols, pca_cols], axis=1)
             X_test_pca.append(hole_transformed)
