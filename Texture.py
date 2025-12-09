@@ -10,6 +10,15 @@ from Data import Field
 
 TEXTURE_LIST = ['B', 'C', 'F', 'G', 'I', 'J', 'H', 'L', 'W', 'P', 'N', 'S', 'T', 'U']
 
+def init_encoder():
+    """
+    Initializes and fits a texture encoder
+    :return: Fit texture encoder
+    """
+    encoder = LabelEncoder()
+    encoder.fit(TEXTURE_LIST)
+
+    return encoder
 def decode_texture(val):
     """
     Decodes a given texture

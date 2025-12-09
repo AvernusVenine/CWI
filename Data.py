@@ -6,6 +6,7 @@ from sklearn.preprocessing import OneHotEncoder
 import random
 import matplotlib.pyplot as plt
 
+import Age
 import config
 
 DATA_PATH = 'compiled_data/data.parquet'
@@ -166,6 +167,44 @@ def one_hot_encode(df):
 
     return encoder
 
+def reduce_quaternary(X, y, age_col, quat_max=40000, mixed_max=40000):
+    """
+    Attempts to balance the hole dataset by reducing the amount of holes that only contain recent layers
+    :param X: Holes numpy array
+    :param y: Labels array
+    :param age_col: Age column
+    :param quat_max: Maximum number of holes to keep with only quaternary layers
+    :param mixed_max: Maximum number of holes to keep with both quaternary and recent layers
+    :return: Balanced holes numpy array
+    """
+
+    X_bal = []
+    y_bal = []
+
+    quat_count = 0
+    mixed_count = 0
+
+    encoder = Age.init_encoder()
+
+    for idx, hole in enumerate(X):
+        age_set = set(encoder.inverse_transform(hole[:, age_col]))
+
+        if age_set == {'Q'}:
+            if quat_count < quat_max:
+                X_bal.append(hole)
+                y_bal.append(y[idx])
+                quat_count = quat_count + 1
+        elif age_set == {'Q', 'R'}:
+            if mixed_count < mixed_max:
+                X_bal.append(hole)
+                y_bal.append(y[idx])
+                mixed_count = mixed_count + 1
+        else:
+            X_bal.append(hole)
+            y_bal.append(y[idx])
+
+    return X_bal, y_bal
+
 def fit_pca(df, n_components=.95):
     """
     Fit a PCA model
@@ -196,3 +235,30 @@ def pca_components_graph():
     plt.ylabel('Variance Explained')
     plt.grid(True)
     plt.savefig('pca_plot.png')
+
+def hole_age_sets():
+    """
+    Function used to determine the distribution of sets of ages among holes found in the dataset
+    :return: Hole age sets
+    """
+    df = load('data.parquet')
+
+    hole_sets = df.groupby(Field.RELATEID)[Field.STRAT].apply(lambda s: set(s.str[0]))
+
+    pd.set_option('display.max_rows', None)
+    pd.set_option('display.max_columns', None)
+
+    print(hole_sets.value_counts())
+
+    return hole_sets
+
+def sample_age_set(target):
+    """
+    Finds an example well that contains a given set of ages
+    :param target: Target set of ages
+    :return: Sampled Relate ID of target set
+    """
+
+    hole_sets = hole_age_sets()
+
+    return hole_sets[hole_sets == target].index.to_series().sample(1).iloc[0]

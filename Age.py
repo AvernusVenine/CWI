@@ -10,10 +10,20 @@ from Data import Field
 
 AGE_LIST = ['B', 'C', 'D', 'F', 'K', 'O', 'P', 'Q', 'R', 'U', 'X', 'Y', 'G', 'A', 'E', 'M']
 
+def init_encoder():
+    """
+    Initializes and fits an age encoder
+    :return: Fit age encoder
+    """
+    encoder = LabelEncoder()
+    encoder.fit(AGE_LIST)
+
+    return encoder
+
 def decode_age(val):
     """
     Decodes a given age
-    :param val: Encoded age
+    :param val: Encoded age(s)
     :return: Decoded age
     """
     encoder = LabelEncoder()

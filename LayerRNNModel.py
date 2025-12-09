@@ -165,9 +165,13 @@ class LayerRNN(nn.Module):
         return output
 
 class RNNLoss(nn.Module):
-    def __init__(self, age_weight=1.0, texture_weight=1.0, group_weight=1.0, formation_weight=1.0, member_weight=1.0,
+    def __init__(self, device, age_weight=1.0, texture_weight=1.0, group_weight=1.0, formation_weight=1.0, member_weight=1.0,
                  category_weight=1.0, lithology_weight=1.0):
         super().__init__()
+
+        self.device = device
+
+        self.no_label_weight = .1
 
         """Since certain categories are more important than others, its key that we weigh results from different losses"""
         self.age_weight = age_weight
@@ -178,8 +182,47 @@ class RNNLoss(nn.Module):
         self.category_weight = category_weight
         self.lithology_weight = lithology_weight
 
+        """Need to weight individual labels due to the complexity of the data to alleviate the imabalance"""
+        self.age_label_weight = torch.tensor([
+            1.0, # PA
+            10.0, # Basement
+            1.0, # Cambrian
+            1.0, # Devonian
+            1.0, # PE
+            1.0, # Fill
+            1.0, # Precambrian Ordered
+            1.0, # Cretaceous
+            1.0, # PM
+            1.0, # Ordovician
+            1.0, # Precambrian
+            0.25, # Quaternary
+            1.0, # Recent
+            1.0, # Weathering Residuum
+            10.0, # Pitt
+            10.0, # Pavement
+        ]).to(device)
+
+        self.texture_label_weight = torch.tensor([
+            1.0, # B
+            0.5, # C
+            0.5, # F
+            1.0, # G
+            1.0, # H
+            2.0, # I
+            1.0, # J
+            1.0, # L
+            1.0, # N
+            1.0, # P
+            2.0, # S
+            1.0, # T
+            1.0, # U
+            1.0, # W
+        ]).to(device)
+
         """Age/Texture can only be one label, while the rest can be multiclass requiring two different loss functions"""
-        self.ce_loss = nn.CrossEntropyLoss(ignore_index=-100)
+
+        self.age_loss = nn.CrossEntropyLoss(ignore_index=-100, weight=self.age_label_weight)
+        self.texture_loss = nn.CrossEntropyLoss(ignore_index=-100, weight=self.texture_label_weight)
         self.bce_loss = nn.BCEWithLogitsLoss()
 
     def forward(self, y_pred, y_true):
@@ -188,43 +231,93 @@ class RNNLoss(nn.Module):
 
         age_pred_flat = y_pred['age'].reshape(-1, y_pred['age'].size(-1))
         age_true_flat = y_true['age'].reshape(-1).long()
-        age_loss = self.ce_loss(age_pred_flat, age_true_flat)
+        age_loss = self.age_loss(age_pred_flat, age_true_flat)
         type_losses['age'] = age_loss.item()
         total_loss = total_loss + self.age_weight * age_loss
 
         texture_pred_flat = y_pred['texture'].reshape(-1, y_pred['texture'].size(-1))
         texture_true_flat = y_true['texture'].reshape(-1).long()
-        texture_loss = self.ce_loss(texture_pred_flat, texture_true_flat)
+        texture_loss = self.texture_loss(texture_pred_flat, texture_true_flat)
         type_losses['texture'] = texture_loss.item()
         total_loss = total_loss + self.texture_weight * texture_loss
 
+        """Apply a lower weight to layers that have no groups due to their abundance"""
+        # Claude was used to help generate this based off my original design
         group_pred_flat = y_pred['group'].reshape(-1, y_pred['group'].size(-1))
         group_true_flat = y_true['group'].reshape(-1, y_true['group'].size(-1))
-        group_loss = self.bce_loss(group_pred_flat, group_true_flat)
+
+        group_mask = (group_true_flat.sum(dim=1) == 0)
+        group_weights = torch.ones(group_true_flat.size(0), device=group_true_flat.device)
+        group_weights[group_mask] = self.no_label_weight
+        group_weights = group_weights.unsqueeze(1).expand_as(group_true_flat)
+
+        weighted_group_loss = nn.BCEWithLogitsLoss(weight=group_weights)
+
+        group_loss = weighted_group_loss(group_pred_flat, group_true_flat)
         type_losses['group'] = group_loss.item()
         total_loss = total_loss + self.group_weight * group_loss
 
+        """Apply a lower weight to layers that have no formations due to their abundance"""
+
         formation_pred_flat = y_pred['formation'].reshape(-1, y_pred['formation'].size(-1))
         formation_true_flat = y_true['formation'].reshape(-1, y_true['formation'].size(-1))
-        formation_loss = self.bce_loss(formation_pred_flat, formation_true_flat)
+
+        formation_mask = (formation_true_flat.sum(dim=1) == 0)
+        formation_weights = torch.ones(formation_true_flat.size(0), device=formation_true_flat.device)
+        formation_weights[formation_mask] = self.no_label_weight
+        formation_weights = formation_weights.unsqueeze(1).expand_as(formation_true_flat)
+
+        weighted_formation_loss = nn.BCEWithLogitsLoss(weight=formation_weights)
+
+        formation_loss = weighted_formation_loss(formation_pred_flat, formation_true_flat)
         type_losses['formation'] = formation_loss.item()
         total_loss = total_loss + self.formation_weight * formation_loss
 
+        """Apply a lower weight to layers that have no members due to their abundance"""
+
         member_pred_flat = y_pred['member'].reshape(-1, y_pred['member'].size(-1))
         member_true_flat = y_true['member'].reshape(-1, y_true['member'].size(-1))
-        member_loss = self.bce_loss(member_pred_flat, member_true_flat)
+
+        member_mask = (member_true_flat.sum(dim=1) == 0)
+        member_weights = torch.ones(member_true_flat.size(0), device=member_true_flat.device)
+        member_weights[member_mask] = self.no_label_weight
+        member_weights = member_weights.unsqueeze(1).expand_as(member_true_flat)
+
+        weighted_member_loss = nn.BCEWithLogitsLoss(weight=member_weights)
+
+        member_loss = weighted_member_loss(member_pred_flat, member_true_flat)
         type_losses['member'] = member_loss.item()
         total_loss = total_loss + self.member_weight * member_loss
 
+        """Apply a lower weight to layers that have no categories due to their abundance"""
+
         category_pred_flat = y_pred['category'].reshape(-1, y_pred['category'].size(-1))
         category_true_flat = y_true['category'].reshape(-1, y_true['category'].size(-1))
-        category_loss = self.bce_loss(category_pred_flat, category_true_flat)
+
+        category_mask = (category_true_flat.sum(dim=1) == 0)
+        category_weights = torch.ones(category_true_flat.size(0), device=category_true_flat.device)
+        category_weights[category_mask] = self.no_label_weight
+        category_weights = category_weights.unsqueeze(1).expand_as(category_true_flat)
+
+        weighted_category_loss = nn.BCEWithLogitsLoss(weight=category_weights)
+
+        category_loss = weighted_category_loss(category_pred_flat, category_true_flat)
         type_losses['category'] = category_loss.item()
         total_loss = total_loss + self.category_weight * category_loss
 
+        """Apply a lower weight to layers that have no lithologies due to their abundance"""
+
         lithology_pred_flat = y_pred['lithology'].reshape(-1, y_pred['lithology'].size(-1))
         lithology_true_flat = y_true['lithology'].reshape(-1, y_true['lithology'].size(-1))
-        lithology_loss = self.bce_loss(lithology_pred_flat, lithology_true_flat)
+
+        lithology_mask = (lithology_true_flat.sum(dim=1) == 0)
+        lithology_weights = torch.ones(lithology_true_flat.size(0), device=lithology_true_flat.device)
+        lithology_weights[lithology_mask] = self.no_label_weight
+        lithology_weights = lithology_weights.unsqueeze(1).expand_as(lithology_true_flat)
+
+        weighted_lithology_loss = nn.BCEWithLogitsLoss(weight=lithology_weights)
+
+        lithology_loss = weighted_lithology_loss(lithology_pred_flat, lithology_true_flat)
         type_losses['lithology'] = lithology_loss.item()
         total_loss = total_loss + self.lithology_weight * lithology_loss
 
@@ -302,7 +395,7 @@ class LayerRNNModel:
         self.depth_bot_scaler = None
 
         self.path = path
-        self.loss_func = RNNLoss()
+        self.loss_func = RNNLoss(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
         self.df = None
 
@@ -411,6 +504,7 @@ class LayerRNNModel:
         elevation_idx = self.df.columns.get_loc(Field.ELEVATION)
         top_idx = self.df.columns.get_loc(Field.DEPTH_TOP)
         bot_idx = self.df.columns.get_loc(Field.DEPTH_BOT)
+        age_idx = self.df.columns.get_loc(Field.AGE)
 
         if retrain:
 
@@ -472,11 +566,10 @@ class LayerRNNModel:
                 axis=0
             )
 
-            pca = Data.fit_pca(embeddings, .9)
-            joblib.dump(pca, f'{self.path}.pca')
-            self.pca = pca #TODO: Fix this so everything just refers to self.pca
+            self.pca = Data.fit_pca(embeddings, .9)
+            joblib.dump(self.pca, f'{self.path}.pca')
         else:
-            print('LOADING SCALERS')
+            print('LOADING PRETRAINED SCALERS')
 
             self.utme_scaler = joblib.load(f'{self.path}.utme.scl')
             self.utmn_scaler = joblib.load(f'{self.path}.utmn.scl')
@@ -484,6 +577,9 @@ class LayerRNNModel:
             self.depth_top_scaler = joblib.load(f'{self.path}.top.scl')
             self.depth_bot_scaler = joblib.load(f'{self.path}.bot.scl')
             self.pca = joblib.load(f'{self.path}.pca')
+
+        print('BALANCING DATA SET')
+        X_train, y_train = Data.reduce_quaternary(X_train, y_train, age_idx)
 
         print("APPLYING DATA REFINEMENTS")
 
@@ -503,7 +599,7 @@ class LayerRNNModel:
             non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(
                 non_embedding_cols[:, bot_idx].reshape(-1, 1)).ravel()
 
-            pca_cols = pca.transform(hole[:, -self.n_text_cols:])
+            pca_cols = self.pca.transform(hole[:, -self.n_text_cols:])
 
             hole_transformed = np.concatenate([non_embedding_cols, pca_cols], axis=1)
             X_train_pca.append(hole_transformed)
@@ -523,7 +619,7 @@ class LayerRNNModel:
             non_embedding_cols[:, bot_idx] = self.depth_bot_scaler.transform(
                 non_embedding_cols[:, bot_idx].reshape(-1, 1)).ravel()
 
-            pca_cols = pca.transform(hole[:, -self.n_text_cols:])
+            pca_cols = self.pca.transform(hole[:, -self.n_text_cols:])
 
             hole_transformed = np.concatenate([non_embedding_cols, pca_cols], axis=1)
             X_test_pca.append(hole_transformed)
