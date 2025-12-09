@@ -15,8 +15,8 @@ import Bedrock
 import utils
 from utils import Field
 
-cwi_well_data_path = 'cwi_data/cwi5.csv'
-cwi_layer_data_path = 'cwi_data/c5st.csv'
+cwi_well_data_path = 'raw_data/cwi5.csv'
+cwi_layer_data_path = 'raw_data/c5st.csv'
 feature_data_path = 'compiled_data/data.parquet'
 
 depth_to_bedrock_path = 'map_data/depth_to_bedrock_2020.npa'

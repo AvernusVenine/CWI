@@ -104,13 +104,13 @@ class LayerRNN(nn.Module):
         self.category_linear = nn.Sequential(
             nn.Linear(hidden_size * 2 + self.num_ages, 512),
             nn.ReLU(),
-            nn.Linear(512, self.num_textures)
+            nn.Linear(512, self.num_categories)
         )
 
         self.lithology_linear = nn.Sequential(
             nn.Linear(hidden_size * 2 + self.num_ages + self.num_categories, 512),
             nn.ReLU(),
-            nn.Linear(512, self.num_textures)
+            nn.Linear(512, self.num_lithologies)
         )
 
 
@@ -123,31 +123,44 @@ class LayerRNN(nn.Module):
             self.hidden_size
         ).to(X.device)
 
-        X, _ = self.feature_rnn(X, h0)
-        X = X[:,-1,:]
+        c0 = torch.zeros(
+            self.num_layers * 2,
+            X.size(0),
+            self.hidden_size
+        ).to(X.device)
+
+        X, _ = self.feature_rnn(X, (h0, c0))
+
+        batch_size, seq_len, hidden_dim = X.shape
+
+        X = X.reshape(batch_size * seq_len, hidden_dim)
 
         age = self.age_linear(X)
+        age = age.reshape(batch_size * seq_len, self.num_ages)
         output['age'] = age
 
         X_age = torch.cat([X, age], dim=1)
 
-        output['texture'] = self.texture_linear(X_age)
+        output['texture'] = self.texture_linear(X_age).reshape(batch_size * seq_len, self.num_textures)
 
         group = self.group_linear(X_age)
+        group = group.reshape(batch_size * seq_len, self.num_groups)
         output['group'] = group
 
         X_group = torch.cat([X, group], dim=1)
         formation = self.formation_linear(X_group)
+        formation = formation.reshape(batch_size * seq_len, self.num_formations)
         output['formation'] = formation
 
         X_formation = torch.cat([X, formation], dim=1)
-        output['member'] = self.member_linear(X_formation)
+        output['member'] = self.member_linear(X_formation).reshape(batch_size * seq_len, self.num_members)
 
         category = self.category_linear(X_age)
+        category = category.reshape(batch_size * seq_len, self.num_categories)
         output['category'] = category
 
         X_category = torch.cat([X, age, category], dim=1)
-        output['lithology'] = self.lithology_linear(X_category)
+        output['lithology'] = self.lithology_linear(X_category).reshape(batch_size * seq_len, self.num_lithologies)
 
         return output
 
@@ -173,32 +186,46 @@ class RNNLoss(nn.Module):
         total_loss = 0
         type_losses = {}
 
-        age_loss = self.ce_loss(y_pred['age'], y_true['age'])
+        age_pred_flat = y_pred['age'].reshape(-1, y_pred['age'].size(-1))
+        age_true_flat = y_true['age'].reshape(-1).long()
+        age_loss = self.ce_loss(age_pred_flat, age_true_flat)
         type_losses['age'] = age_loss.item()
         total_loss = total_loss + self.age_weight * age_loss
 
-        texture_loss = self.ce_loss(y_pred['texture'], y_true['texture'])
-        type_losses['texture'] = texture_loss.items()
+        texture_pred_flat = y_pred['texture'].reshape(-1, y_pred['texture'].size(-1))
+        texture_true_flat = y_true['texture'].reshape(-1).long()
+        texture_loss = self.ce_loss(texture_pred_flat, texture_true_flat)
+        type_losses['texture'] = texture_loss.item()
         total_loss = total_loss + self.texture_weight * texture_loss
 
-        group_loss = self.bce_loss(y_pred['group'], y_true['group'])
+        group_pred_flat = y_pred['group'].reshape(-1, y_pred['group'].size(-1))
+        group_true_flat = y_true['group'].reshape(-1, y_true['group'].size(-1))
+        group_loss = self.bce_loss(group_pred_flat, group_true_flat)
         type_losses['group'] = group_loss.item()
         total_loss = total_loss + self.group_weight * group_loss
 
-        formation_loss = self.bce_loss(y_pred['formation'], y_true['formation'])
-        type_losses['formation'] = formation_loss.items()
+        formation_pred_flat = y_pred['formation'].reshape(-1, y_pred['formation'].size(-1))
+        formation_true_flat = y_true['formation'].reshape(-1, y_true['formation'].size(-1))
+        formation_loss = self.bce_loss(formation_pred_flat, formation_true_flat)
+        type_losses['formation'] = formation_loss.item()
         total_loss = total_loss + self.formation_weight * formation_loss
 
-        member_loss = self.bce_loss(y_pred['member'], y_true['member'])
-        type_losses['member'] = member_loss.items()
+        member_pred_flat = y_pred['member'].reshape(-1, y_pred['member'].size(-1))
+        member_true_flat = y_true['member'].reshape(-1, y_true['member'].size(-1))
+        member_loss = self.bce_loss(member_pred_flat, member_true_flat)
+        type_losses['member'] = member_loss.item()
         total_loss = total_loss + self.member_weight * member_loss
 
-        category_loss = self.bce_loss(y_pred['category'], y_true['category'])
-        type_losses['category'] = category_loss.items()
+        category_pred_flat = y_pred['category'].reshape(-1, y_pred['category'].size(-1))
+        category_true_flat = y_true['category'].reshape(-1, y_true['category'].size(-1))
+        category_loss = self.bce_loss(category_pred_flat, category_true_flat)
+        type_losses['category'] = category_loss.item()
         total_loss = total_loss + self.category_weight * category_loss
 
-        lithology_loss = self.bce_loss(y_pred['lithology'], y_true['lithology'])
-        type_losses['lithology'] = lithology_loss.items()
+        lithology_pred_flat = y_pred['lithology'].reshape(-1, y_pred['lithology'].size(-1))
+        lithology_true_flat = y_true['lithology'].reshape(-1, y_true['lithology'].size(-1))
+        lithology_loss = self.bce_loss(lithology_pred_flat, lithology_true_flat)
+        type_losses['lithology'] = lithology_loss.item()
         total_loss = total_loss + self.lithology_weight * lithology_loss
 
         return total_loss, type_losses
@@ -219,7 +246,7 @@ def train_loop(train_loader, model, device, loss_func, optimizer):
 
     for X, y in train_loader:
         X = X.to(device)
-        y = y.to(device)
+        y = {k: v.to(device) for k, v in y.items()}
 
         outputs = model(X)
         loss, _ = loss_func(outputs, y)
@@ -250,7 +277,7 @@ def test_loop(test_loader, model, device, loss_func):
     with torch.no_grad():
         for X, y in test_loader:
             X = X.to(device)
-            y = y.to(device)
+            y = {k: v.to(device) for k, v in y.items()}
 
             outputs = model(X)
             loss = loss_func(outputs, y)
@@ -353,7 +380,7 @@ class LayerRNNModel:
         with torch.no_grad():
             output = self.model(X)
 
-    def train(self, random_state=0, max_epochs=10, lr=1e-3):
+    def train(self, random_state=0, max_epochs=10, lr=1e-3, retrain=True):
         if self.df is None:
             print("LOADING DATA SET")
 
@@ -379,72 +406,84 @@ class LayerRNNModel:
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=random_state)
 
-        print("FITTING SCALERS")
-
-        """Set all null spatial points to a set coordinate not found within Minnesota"""
-        self.utme_scaler = StandardScaler()
         utme_idx = self.df.columns.get_loc(Field.UTME)
-        utme = np.concatenate(
-            [hole[:, utme_idx] for hole in X_train],
-            axis=0
-        )
-        utme[np.isnan(utme)] = self.df[Field.UTME].min() * .9
-        self.utme_scaler.fit(utme.reshape(-1, 1))
-
-        self.utmn_scaler = StandardScaler()
         utmn_idx = self.df.columns.get_loc(Field.UTMN)
-        utmn = np.concatenate(
-            [hole[:, utmn_idx] for hole in X_train],
-            axis=0
-        )
-        utmn[np.isnan(utmn)] = self.df[Field.UTMN].min() * .9
-        self.utmn_scaler.fit(utmn.reshape(-1, 1))
-
-        self.elevation_scaler = StandardScaler()
         elevation_idx = self.df.columns.get_loc(Field.ELEVATION)
-        elevation = np.concatenate(
-            [hole[:, elevation_idx] for hole in X_train],
-            axis=0
-        )
-        elevation[np.isnan(elevation)] = self.df[Field.ELEVATION].min() * .8
-        self.elevation_scaler.fit(elevation.reshape(-1, 1))
-
-        """Since depth will always be greater than 0, we set null values to a relatively small negative value"""
-        self.depth_top_scaler = StandardScaler()
         top_idx = self.df.columns.get_loc(Field.DEPTH_TOP)
-        depth_top = np.concatenate(
-            [hole[:, top_idx] for hole in X_train],
-            axis=0
-        )
-        depth_top[np.isnan(depth_top)] = -25
-        self.depth_top_scaler.fit(depth_top.reshape(-1, 1))
-
-        self.depth_bot_scaler = StandardScaler()
         bot_idx = self.df.columns.get_loc(Field.DEPTH_BOT)
-        depth_bot = np.concatenate(
-            [hole[:, bot_idx] for hole in X_train],
-            axis=0
-        )
-        depth_bot[np.isnan(depth_bot)] = -25
-        self.depth_bot_scaler.fit(depth_bot.reshape(-1, 1))
 
-        joblib.dump(self.utme_scaler, f'{self.path}.utme.scl')
-        joblib.dump(self.utmn_scaler, f'{self.path}.utmn.scl')
-        joblib.dump(self.elevation_scaler, f'{self.path}.elevation.scl')
-        joblib.dump(self.depth_top_scaler, f'{self.path}.top.scl')
-        joblib.dump(self.depth_bot_scaler, f'{self.path}.bot.scl')
+        if retrain:
 
-        print("FITTING PCA")
+            print("FITTING SCALERS")
 
-        #Claude used to bugfix this line that unpacks holes into their layers again for PCA
-        embeddings = np.concatenate(
-            [hole[:, -self.n_text_cols:] for hole in X_train],
-            axis=0
-        )
+            """Set all null spatial points to a set coordinate not found within Minnesota"""
+            self.utme_scaler = StandardScaler()
+            utme = np.concatenate(
+                [hole[:, utme_idx] for hole in X_train],
+                axis=0
+            )
+            utme[np.isnan(utme)] = self.df[Field.UTME].min() * .9
+            self.utme_scaler.fit(utme.reshape(-1, 1))
 
-        pca = Data.fit_pca(embeddings)
-        joblib.dump(pca, f'{self.path}.pca')
-        self.pca = pca
+            self.utmn_scaler = StandardScaler()
+            utmn = np.concatenate(
+                [hole[:, utmn_idx] for hole in X_train],
+                axis=0
+            )
+            utmn[np.isnan(utmn)] = self.df[Field.UTMN].min() * .9
+            self.utmn_scaler.fit(utmn.reshape(-1, 1))
+
+            self.elevation_scaler = StandardScaler()
+            elevation = np.concatenate(
+                [hole[:, elevation_idx] for hole in X_train],
+                axis=0
+            )
+            elevation[np.isnan(elevation)] = self.df[Field.ELEVATION].min() * .8
+            self.elevation_scaler.fit(elevation.reshape(-1, 1))
+
+            """Since depth will always be greater than 0, we set null values to a relatively small negative value"""
+            self.depth_top_scaler = StandardScaler()
+            depth_top = np.concatenate(
+                [hole[:, top_idx] for hole in X_train],
+                axis=0
+            )
+            depth_top[np.isnan(depth_top)] = -25
+            self.depth_top_scaler.fit(depth_top.reshape(-1, 1))
+
+            self.depth_bot_scaler = StandardScaler()
+            depth_bot = np.concatenate(
+                [hole[:, bot_idx] for hole in X_train],
+                axis=0
+            )
+            depth_bot[np.isnan(depth_bot)] = -25
+            self.depth_bot_scaler.fit(depth_bot.reshape(-1, 1))
+
+            joblib.dump(self.utme_scaler, f'{self.path}.utme.scl')
+            joblib.dump(self.utmn_scaler, f'{self.path}.utmn.scl')
+            joblib.dump(self.elevation_scaler, f'{self.path}.elevation.scl')
+            joblib.dump(self.depth_top_scaler, f'{self.path}.top.scl')
+            joblib.dump(self.depth_bot_scaler, f'{self.path}.bot.scl')
+
+            print("FITTING PCA")
+
+            #Claude used to bugfix this line that unpacks holes into their layers again for PCA
+            embeddings = np.concatenate(
+                [hole[:, -self.n_text_cols:] for hole in X_train],
+                axis=0
+            )
+
+            pca = Data.fit_pca(embeddings, .9)
+            joblib.dump(pca, f'{self.path}.pca')
+            self.pca = pca #TODO: Fix this so everything just refers to self.pca
+        else:
+            print('LOADING SCALERS')
+
+            self.utme_scaler = joblib.load(f'{self.path}.utme.scl')
+            self.utmn_scaler = joblib.load(f'{self.path}.utmn.scl')
+            self.elevation_scaler = joblib.load(f'{self.path}.elevation.scl')
+            self.depth_top_scaler = joblib.load(f'{self.path}.top.scl')
+            self.depth_bot_scaler = joblib.load(f'{self.path}.bot.scl')
+            self.pca = joblib.load(f'{self.path}.pca')
 
         print("APPLYING DATA REFINEMENTS")
 

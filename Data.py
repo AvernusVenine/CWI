@@ -195,4 +195,4 @@ def pca_components_graph():
     plt.xlabel('Number of Components')
     plt.ylabel('Variance Explained')
     plt.grid(True)
-    plt.show()
+    plt.savefig('pca_plot.png')

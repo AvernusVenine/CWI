@@ -14,8 +14,8 @@ BENTON, BLUE EARTH, BROWN
 county_number = 8
 county_name = 'Brown'
 
-cwi_well_data_path = 'cwi_data/cwi5.csv'
-cwi_strat_data_path = 'cwi_data/c5st.csv'
+cwi_well_data_path = 'raw_data/cwi5.csv'
+cwi_strat_data_path = 'raw_data/c5st.csv'
 
 cwi_wells_save_path = 'compiled_data/cwi_wells.csv'
 cwi_layers_save_path = 'compiled_data/cwi_layers.csv'
@@ -145,8 +145,8 @@ def parse_rasters_gdb(raster_list : list):
         parse_raster(top_raster, base_raster, raster)
 
 
-gis_glacial_data_path = 'cwi_data/brown_glacial.gdb'
-gis_bedrock_data_path = 'cwi_data/brown_bedrock'
+gis_glacial_data_path = 'raw_data/brown_glacial.gdb'
+gis_bedrock_data_path = 'raw_data/brown_bedrock'
 
 #arcpy.env.workspace = gis_bedrock_data_path
 #bedrock_rasters = get_raster_list_folder(gis_bedrock_data_path)
