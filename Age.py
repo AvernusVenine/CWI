@@ -55,6 +55,6 @@ def encode_age(df):
     encoder.fit(AGE_LIST)
 
     df.loc[df[Field.AGE].notna(), Field.AGE] = encoder.transform(df.loc[df[Field.AGE].notna(), Field.AGE])
-    df.loc[~df[Field.AGE].notna(), Field.AGE] = -1
+    df.loc[~df[Field.AGE].notna(), Field.AGE] = -100
 
     return df

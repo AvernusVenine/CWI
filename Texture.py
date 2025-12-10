@@ -1,3 +1,6 @@
+import os
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
 import numpy as np
 import pandas as pd
 import torch
@@ -43,6 +46,6 @@ def encode_texture(df):
     encoder.fit(TEXTURE_LIST)
 
     df.loc[df[Field.TEXTURE].notna(), Field.TEXTURE] = encoder.transform(df.loc[df[Field.TEXTURE].notna(), Field.TEXTURE])
-    df.loc[~df[Field.TEXTURE].notna(), Field.TEXTURE] = -1
+    df.loc[~df[Field.TEXTURE].notna(), Field.TEXTURE] = -100
 
     return df

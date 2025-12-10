@@ -220,6 +220,17 @@ LITHOLOGY_LIST = [
     Protomylonite,
     Mylonite,
     Ultramylonite,
+    Iron_Formation,
+    Sandstone,
+    Diabase,
+    Siltstone,
+    Conglomerate,
+    Chert,
+    Quartz_Vein,
+    Pegmatite,
+    Aplite,
+    Carbonate,
+    Shale
 ]
 
 ### MAPPING LITHOLOGIES INSTEAD OF CODES ###

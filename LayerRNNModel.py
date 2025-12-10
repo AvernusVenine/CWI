@@ -13,8 +13,8 @@ import Age, Texture, Bedrock, Precambrian
 import Data
 from Data import Field
 import config, utils
+from FocalLoss import FocalBCELoss, FocalCELoss
 
-import Bedrock, Precambrian
 
 class LayerDataset(Dataset):
     def __init__(self, X, y):
@@ -50,8 +50,10 @@ class LayerDataset(Dataset):
         return data, label_dict
 
 class LayerRNN(nn.Module):
-    def __init__(self, input_size, hidden_size=512, num_layers=2):
+    def __init__(self, input_size, hidden_size=128, num_layers=2):
         super(LayerRNN, self).__init__()
+
+        self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
@@ -71,48 +73,50 @@ class LayerRNN(nn.Module):
             bidirectional=True
         )
 
+        combined_size = hidden_size * 2 + input_size
+
         self.age_linear = nn.Sequential(
-            nn.Linear(hidden_size * 2, 512),
+            nn.Linear(combined_size, 512),
             nn.ReLU(),
+            nn.Dropout(.5),
             nn.Linear(512, self.num_ages)
         )
 
         self.texture_linear = nn.Sequential(
-            nn.Linear(hidden_size * 2 + self.num_ages, 512),
+            nn.Linear(combined_size + self.num_ages, 512),
             nn.ReLU(),
             nn.Linear(512, self.num_textures)
         )
 
         self.group_linear = nn.Sequential(
-            nn.Linear(hidden_size * 2 + self.num_ages, 512),
+            nn.Linear(combined_size + self.num_ages, 512),
             nn.ReLU(),
             nn.Linear(512, self.num_groups)
         )
 
         self.formation_linear = nn.Sequential(
-            nn.Linear(hidden_size * 2 + self.num_groups, 512),
+            nn.Linear(combined_size + self.num_groups, 512),
             nn.ReLU(),
             nn.Linear(512, self.num_formations)
         )
 
         self.member_linear = nn.Sequential(
-            nn.Linear(hidden_size * 2 + self.num_formations, 512),
+            nn.Linear(combined_size + self.num_formations, 512),
             nn.ReLU(),
             nn.Linear(512, self.num_members)
         )
 
         self.category_linear = nn.Sequential(
-            nn.Linear(hidden_size * 2 + self.num_ages, 512),
+            nn.Linear(combined_size + self.num_ages, 512),
             nn.ReLU(),
             nn.Linear(512, self.num_categories)
         )
 
         self.lithology_linear = nn.Sequential(
-            nn.Linear(hidden_size * 2 + self.num_ages + self.num_categories, 512),
+            nn.Linear(combined_size + self.num_ages + self.num_categories, 512),
             nn.ReLU(),
             nn.Linear(512, self.num_lithologies)
         )
-
 
     def forward(self, X):
         output = {}
@@ -129,16 +133,20 @@ class LayerRNN(nn.Module):
             self.hidden_size
         ).to(X.device)
 
-        X, _ = self.feature_rnn(X, (h0, c0))
+        X_rnn, _ = self.feature_rnn(X, (h0, c0))
 
-        batch_size, seq_len, hidden_dim = X.shape
+        batch_size, seq_len, hidden_dim = X_rnn.shape
 
-        X = X.reshape(batch_size * seq_len, hidden_dim)
+        X_rnn = X_rnn.reshape(batch_size * seq_len, hidden_dim)
+        X = X.reshape(batch_size * seq_len, self.input_size)
+
+        X = torch.cat([X, X_rnn], dim=1)
 
         age = self.age_linear(X)
         age = age.reshape(batch_size * seq_len, self.num_ages)
         output['age'] = age
 
+        age = torch.softmax(age, dim=1).detach()
         X_age = torch.cat([X, age], dim=1)
 
         output['texture'] = self.texture_linear(X_age).reshape(batch_size * seq_len, self.num_textures)
@@ -147,19 +155,25 @@ class LayerRNN(nn.Module):
         group = group.reshape(batch_size * seq_len, self.num_groups)
         output['group'] = group
 
+        group = torch.sigmoid(group).detach()
         X_group = torch.cat([X, group], dim=1)
+
         formation = self.formation_linear(X_group)
         formation = formation.reshape(batch_size * seq_len, self.num_formations)
         output['formation'] = formation
 
+        formation = torch.sigmoid(formation).detach()
         X_formation = torch.cat([X, formation], dim=1)
+
         output['member'] = self.member_linear(X_formation).reshape(batch_size * seq_len, self.num_members)
 
         category = self.category_linear(X_age)
         category = category.reshape(batch_size * seq_len, self.num_categories)
         output['category'] = category
 
+        category = torch.sigmoid(category).detach()
         X_category = torch.cat([X, age, category], dim=1)
+
         output['lithology'] = self.lithology_linear(X_category).reshape(batch_size * seq_len, self.num_lithologies)
 
         return output
@@ -171,7 +185,7 @@ class RNNLoss(nn.Module):
 
         self.device = device
 
-        self.no_label_weight = .1
+        self.no_label_weight = .5
 
         """Since certain categories are more important than others, its key that we weigh results from different losses"""
         self.age_weight = age_weight
@@ -182,63 +196,26 @@ class RNNLoss(nn.Module):
         self.category_weight = category_weight
         self.lithology_weight = lithology_weight
 
-        """Need to weight individual labels due to the complexity of the data to alleviate the imabalance"""
-        self.age_label_weight = torch.tensor([
-            1.0, # PA
-            10.0, # Basement
-            1.0, # Cambrian
-            1.0, # Devonian
-            1.0, # PE
-            1.0, # Fill
-            1.0, # Precambrian Ordered
-            1.0, # Cretaceous
-            1.0, # PM
-            1.0, # Ordovician
-            1.0, # Precambrian
-            0.25, # Quaternary
-            1.0, # Recent
-            1.0, # Weathering Residuum
-            10.0, # Pitt
-            10.0, # Pavement
-        ]).to(device)
-
-        self.texture_label_weight = torch.tensor([
-            1.0, # B
-            0.5, # C
-            0.5, # F
-            1.0, # G
-            1.0, # H
-            2.0, # I
-            1.0, # J
-            1.0, # L
-            1.0, # N
-            1.0, # P
-            2.0, # S
-            1.0, # T
-            1.0, # U
-            1.0, # W
-        ]).to(device)
-
         """Age/Texture can only be one label, while the rest can be multiclass requiring two different loss functions"""
 
-        self.age_loss = nn.CrossEntropyLoss(ignore_index=-100, weight=self.age_label_weight)
-        self.texture_loss = nn.CrossEntropyLoss(ignore_index=-100, weight=self.texture_label_weight)
+        self.age_loss = nn.CrossEntropyLoss(ignore_index=-100)
+        self.texture_loss = nn.CrossEntropyLoss(ignore_index=-100)
         self.bce_loss = nn.BCEWithLogitsLoss()
 
     def forward(self, y_pred, y_true):
         total_loss = 0
-        type_losses = {}
 
         age_pred_flat = y_pred['age'].reshape(-1, y_pred['age'].size(-1))
         age_true_flat = y_true['age'].reshape(-1).long()
+
         age_loss = self.age_loss(age_pred_flat, age_true_flat)
-        type_losses['age'] = age_loss.item()
         total_loss = total_loss + self.age_weight * age_loss
+
+        return age_loss
 
         texture_pred_flat = y_pred['texture'].reshape(-1, y_pred['texture'].size(-1))
         texture_true_flat = y_true['texture'].reshape(-1).long()
         texture_loss = self.texture_loss(texture_pred_flat, texture_true_flat)
-        type_losses['texture'] = texture_loss.item()
         total_loss = total_loss + self.texture_weight * texture_loss
 
         """Apply a lower weight to layers that have no groups due to their abundance"""
@@ -254,7 +231,6 @@ class RNNLoss(nn.Module):
         weighted_group_loss = nn.BCEWithLogitsLoss(weight=group_weights)
 
         group_loss = weighted_group_loss(group_pred_flat, group_true_flat)
-        type_losses['group'] = group_loss.item()
         total_loss = total_loss + self.group_weight * group_loss
 
         """Apply a lower weight to layers that have no formations due to their abundance"""
@@ -270,7 +246,6 @@ class RNNLoss(nn.Module):
         weighted_formation_loss = nn.BCEWithLogitsLoss(weight=formation_weights)
 
         formation_loss = weighted_formation_loss(formation_pred_flat, formation_true_flat)
-        type_losses['formation'] = formation_loss.item()
         total_loss = total_loss + self.formation_weight * formation_loss
 
         """Apply a lower weight to layers that have no members due to their abundance"""
@@ -286,7 +261,6 @@ class RNNLoss(nn.Module):
         weighted_member_loss = nn.BCEWithLogitsLoss(weight=member_weights)
 
         member_loss = weighted_member_loss(member_pred_flat, member_true_flat)
-        type_losses['member'] = member_loss.item()
         total_loss = total_loss + self.member_weight * member_loss
 
         """Apply a lower weight to layers that have no categories due to their abundance"""
@@ -302,7 +276,6 @@ class RNNLoss(nn.Module):
         weighted_category_loss = nn.BCEWithLogitsLoss(weight=category_weights)
 
         category_loss = weighted_category_loss(category_pred_flat, category_true_flat)
-        type_losses['category'] = category_loss.item()
         total_loss = total_loss + self.category_weight * category_loss
 
         """Apply a lower weight to layers that have no lithologies due to their abundance"""
@@ -318,10 +291,9 @@ class RNNLoss(nn.Module):
         weighted_lithology_loss = nn.BCEWithLogitsLoss(weight=lithology_weights)
 
         lithology_loss = weighted_lithology_loss(lithology_pred_flat, lithology_true_flat)
-        type_losses['lithology'] = lithology_loss.item()
         total_loss = total_loss + self.lithology_weight * lithology_loss
 
-        return total_loss, type_losses
+        return total_loss
 
 
 def train_loop(train_loader, model, device, loss_func, optimizer):
@@ -337,18 +309,24 @@ def train_loop(train_loader, model, device, loss_func, optimizer):
     model.train()
     total_loss = 0
 
+    initial_weights = model.age_linear[0].weight.clone()
+
     for X, y in train_loader:
         X = X.to(device)
         y = {k: v.to(device) for k, v in y.items()}
 
         outputs = model(X)
-        loss, _ = loss_func(outputs, y)
+        loss = loss_func(outputs, y)
 
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         total_loss = total_loss + loss.item()
+
+    weight_diff = (model.age_linear[0].weight - initial_weights).abs().mean()
+    print(f"Weight change: {weight_diff:.6f}")
 
     return total_loss/len(train_loader)
 
@@ -364,8 +342,6 @@ def test_loop(test_loader, model, device, loss_func):
     model.eval()
 
     total_loss = 0
-    correct = 0
-    total = 0
 
     with torch.no_grad():
         for X, y in test_loader:
@@ -375,13 +351,9 @@ def test_loop(test_loader, model, device, loss_func):
             outputs = model(X)
             loss = loss_func(outputs, y)
 
-            total_loss, _ = total_loss + loss.item()
+            total_loss = total_loss + loss.item()
 
-            labels = torch.argmax(outputs.data, dim=1)
-            correct = correct + (labels == y).sum().item()
-            total = total + X.size(0)
-
-    return total_loss/len(test_loader), correct/total
+    return total_loss/len(test_loader)
 
 class LayerRNNModel:
     def __init__(self, path):
@@ -395,7 +367,8 @@ class LayerRNNModel:
         self.depth_bot_scaler = None
 
         self.path = path
-        self.loss_func = RNNLoss(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        self.loss_func = RNNLoss(torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                                 , 1, 0, 0, 0, 0, 0, 0)
 
         self.df = None
 
@@ -473,7 +446,9 @@ class LayerRNNModel:
         with torch.no_grad():
             output = self.model(X)
 
-    def train(self, random_state=0, max_epochs=10, lr=1e-3, retrain=True):
+        return output
+
+    def train(self, random_state=0, max_epochs=10, lr=1e-4, retrain=True):
         if self.df is None:
             print("LOADING DATA SET")
 
@@ -488,6 +463,10 @@ class LayerRNNModel:
             df = utils.encode_hardness(df)
             df = utils.encode_color(df)
 
+            df[Field.UTME] = df[Field.UTME].fillna(df[Field.UTME].min() * .9)
+            df[Field.UTMN] = df[Field.UTMN].fillna(df[Field.UTMN].min() * .9)
+            df[Field.ELEVATION] = df[Field.ELEVATION].fillna(df[Field.ELEVATION].min() * .8)
+
             """Have to reorder the columns before we convert them into a numpy array"""
             embedded_cols = [f"emb_{i}" for i in range(384)]
             other_cols = [col for col in df.columns if col not in embedded_cols]
@@ -496,6 +475,9 @@ class LayerRNNModel:
             self.df = df
 
         X, y, y_cols = utils.sequence_layers(self.df)
+
+        self.X = X
+        self.y = y
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=random_state)
 
@@ -579,7 +561,15 @@ class LayerRNNModel:
             self.pca = joblib.load(f'{self.path}.pca')
 
         print('BALANCING DATA SET')
-        X_train, y_train = Data.reduce_quaternary(X_train, y_train, age_idx)
+        X_train, y_train = utils.reduce_majority(X_train, y_train, {
+            'Q': .1
+        })
+        X_train, y_train = utils.SMOTE_shallow(X_train, y_train, top_idx, bot_idx, elevation_idx, utme_idx, utmn_idx,
+            value_dict={
+                'X': 4000,
+                'Y': 4000,
+                'B': 4000
+            })
 
         print("APPLYING DATA REFINEMENTS")
 
@@ -627,25 +617,30 @@ class LayerRNNModel:
         train_dataset = LayerDataset(X_train_pca, y_train)
         test_dataset = LayerDataset(X_test_pca, y_test)
 
-        train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, collate_fn=utils.rnn_collate_fn)
-        test_loader = DataLoader(test_dataset, batch_size=64, collate_fn=utils.rnn_collate_fn)
+        train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True, collate_fn=utils.rnn_collate_fn)
+        test_loader = DataLoader(test_dataset, batch_size=256, collate_fn=utils.rnn_collate_fn)
 
         print("INITIATING MODEL")
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.model = LayerRNN(X_train_pca[0].shape[1])
+        self.model = LayerRNN(X_train_pca[0].shape[1], hidden_size=512, num_layers=2)
         self.model = self.model.to(device)
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         best_loss = np.inf
 
+        train_losses = []
+        test_losses = []
+
         for epoch in range(max_epochs):
             train_loss = train_loop(train_loader, self.model, device, self.loss_func, optimizer)
-            print(f'EPOCH [{epoch+1}|{max_epochs}] : {train_loss:.4f}')
+            train_losses.append(train_loss)
+            print(f'EPOCH [{epoch+1}|{max_epochs}] TRAIN: {train_loss:.4f}')
 
-            test_loss, test_acc = test_loop(test_loader, self.model, device, self.loss_func)
-            print(f'EPOCH [{epoch+1}|{max_epochs}] : {test_loss:.4f} : {test_acc * 100:.2f}')
+            test_loss = test_loop(test_loader, self.model, device, self.loss_func)
+            test_losses.append(test_loss)
+            print(f'EPOCH [{epoch+1}|{max_epochs}] TEST: {test_loss:.4f}')
 
             if test_loss < best_loss:
                 torch.save(self.model.state_dict(), f'{self.path}.mdl')
@@ -657,3 +652,4 @@ class LayerRNNModel:
 
                 with open(f'{self.path}.json', 'w') as f:
                     json.dump(params, f)
+

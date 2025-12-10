@@ -5,8 +5,10 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import OneHotEncoder
 import random
 import matplotlib.pyplot as plt
+import random
+import numpy as np
+import copy
 
-import Age
 import config
 
 DATA_PATH = 'compiled_data/data.parquet'
@@ -40,7 +42,6 @@ class Field:
     LITH_PRIM = 'lith_prim'
 
 
-#TODO: I actually havent added first_bedrock_age yet...
 GENERAL_DROPPED_COLUMNS = [Field.RELATEID, Field.DRILLER_DESCRIPTION, Field.COLOR, Field.WEIGHT, Field.STRAT, Field.DATA_SOURCE,
                      Field.INTERPRETATION_METHOD]
 
@@ -166,44 +167,6 @@ def one_hot_encode(df):
     encoder.fit(df)
 
     return encoder
-
-def reduce_quaternary(X, y, age_col, quat_max=40000, mixed_max=40000):
-    """
-    Attempts to balance the hole dataset by reducing the amount of holes that only contain recent layers
-    :param X: Holes numpy array
-    :param y: Labels array
-    :param age_col: Age column
-    :param quat_max: Maximum number of holes to keep with only quaternary layers
-    :param mixed_max: Maximum number of holes to keep with both quaternary and recent layers
-    :return: Balanced holes numpy array
-    """
-
-    X_bal = []
-    y_bal = []
-
-    quat_count = 0
-    mixed_count = 0
-
-    encoder = Age.init_encoder()
-
-    for idx, hole in enumerate(X):
-        age_set = set(encoder.inverse_transform(hole[:, age_col]))
-
-        if age_set == {'Q'}:
-            if quat_count < quat_max:
-                X_bal.append(hole)
-                y_bal.append(y[idx])
-                quat_count = quat_count + 1
-        elif age_set == {'Q', 'R'}:
-            if mixed_count < mixed_max:
-                X_bal.append(hole)
-                y_bal.append(y[idx])
-                mixed_count = mixed_count + 1
-        else:
-            X_bal.append(hole)
-            y_bal.append(y[idx])
-
-    return X_bal, y_bal
 
 def fit_pca(df, n_components=.95):
     """

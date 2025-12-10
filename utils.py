@@ -5,6 +5,8 @@ from torch.nn.utils.rnn import pad_sequence
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 import re
 import warnings
+import matplotlib.pyplot as plt
+import random
 
 import Bedrock
 import Texture
@@ -13,6 +15,105 @@ import Precambrian
 from Precambrian import PrecambrianCode
 from Data import Field
 import Age
+
+def reduce_majority(X, y, percentage_dict):
+    """
+    Attempts to balance the hole dataset by removing labels from majority age classes (effectively masking them)
+    :param X: Holes numpy array
+    :param y: Labels array
+    :param percentage_dict: Dictionary of ages and percentage of layers to keep
+    :return: Balanced holes numpy array and labels
+    """
+
+    encoder = Age.init_encoder()
+
+    percentage_dict = {encoder.transform([k])[0] : v for k, v in percentage_dict.items()}
+
+    for idx, hole in enumerate(X):
+        for jdx, layer in enumerate(hole):
+            age = y[idx][jdx][0]
+
+            if age in percentage_dict.keys():
+                if random.random() > percentage_dict[age]:
+                    y[idx][jdx][0] = -100
+
+    return X, y
+
+def SMOTE_shallow(X, y, top_col, bot_col, elev_col, utme_col, utmn_col, value_dict):
+    """
+    Used to create synthetic data points for the ages 'BSMT', 'PITT', and 'PVMT'
+    :param X: Holes numpy array
+    :param y: Labels array
+    :param top_col: Depth top column index
+    :param bot_col: Depth bot column index
+    :param elev_col: Elevation column index
+    :param utme_col: UTME column index
+    :param utmn_col: UTMN column index
+    :param value_dict: Dictionary of ages and values desired
+    :return: Balanced holes numpy array and labels
+    """
+
+    encoder = Age.init_encoder()
+
+    value_dict = {encoder.transform([k])[0] : v for k, v in value_dict.items()}
+
+    layer_dict = {k : [] for k, _ in value_dict.items()}
+
+    depth_dict = {k : [] for k, _ in value_dict.items()}
+    elev_dict = {k : [] for k, _ in value_dict.items()}
+    utme_dict = {k : [] for k, _ in value_dict.items()}
+    utmn_dict = {k : [] for k, _ in value_dict.items()}
+
+    label_dict = {k : [] for k, _ in value_dict.items()}
+
+    for idx, hole in enumerate(X):
+        for jdx, layer in enumerate(hole):
+            age = y[idx][jdx][0]
+
+            if age in value_dict.keys():
+                layer_dict[age].append(layer)
+
+                depth_dict[age].append(layer[bot_col])
+                elev_dict[age].append(layer[elev_col])
+                utme_dict[age].append(layer[utme_col])
+                utmn_dict[age].append(layer[utmn_col])
+
+                label_dict[age].append(y[idx][jdx])
+
+    for age, max_count in value_dict.items():
+        depth_mean = np.mean(depth_dict[age])
+        depth_std = np.std(depth_dict[age])
+
+        elev_min = np.min(elev_dict[age])
+        elev_max = np.max(elev_dict[age])
+
+        utme_min = np.min(utme_dict[age])
+        utme_max = np.max(utme_dict[age])
+
+        utmn_min = np.min(utmn_dict[age])
+        utmn_max = np.max(utmn_dict[age])
+
+        arr = np.array([random.choice(layer_dict[age]) for _ in range(max_count)])
+
+        arr[:, top_col] = np.min(arr[:, top_col])
+
+        depths = np.random.normal(depth_mean, depth_std, max_count)
+        arr[:, bot_col] = depths
+
+        elevations = np.random.uniform(elev_min, elev_max, max_count)
+        arr[:, elev_col] = elevations
+
+        utme = np.random.uniform(utme_min, utme_max, max_count)
+        arr[:, utme_col] = utme
+
+        utmn = np.random.uniform(utmn_min, utmn_max, max_count)
+        arr[:, utmn_col] = utmn
+
+        for layer in arr:
+            X.append(np.array([layer]))
+            y.append(np.array([random.choice(label_dict[age])]))
+
+    return X, y
 
 def compile_geocode(label_dict):
     """
@@ -258,3 +359,16 @@ def rnn_collate_fn(batch):
     }
 
     return features_padded, labels_padded
+
+def graph_loss(train, test):
+    epochs = range(1, len(train) + 1)
+
+    plt.plot(epochs, train, label='Training Loss')
+    plt.plot(epochs, test, label='Test Loss')
+
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('loss_plot.png')
