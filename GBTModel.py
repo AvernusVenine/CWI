@@ -4,6 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+import pandas as pd
 
 import Bedrock
 import Precambrian
@@ -34,8 +35,7 @@ class GBTModel:
         self.utme_scaler = None
         self.utmn_scaler = None
         self.elevation_scaler = None
-        self.depth_top_scaler = None
-        self.depth_bot_scaler = None
+        self.depth_scaler = None
 
         self.path = path
 
@@ -43,60 +43,108 @@ class GBTModel:
 
         self.n_text_cols = 384
 
-        self.load_data()
+        self.X_train = None
 
-    def test(self, relate_id):
-        if not os.path.isfile(f'{self.path}.mdl'):
-            return None
-        elif self.age_model is None:
+    def test(self, relate_id, unlabelled=False):
+        if self.age_model is None:
             self.age_model = joblib.load(f'{self.path}.age.mdl')
+            self.age_model.set_params(device='cpu')
             self.texture_model = joblib.load(f'{self.path}.txt.mdl')
+            self.texture_model.set_params(device='cpu')
 
             self.utme_scaler = joblib.load(f'{self.path}.utme.scl')
             self.utmn_scaler = joblib.load(f'{self.path}.utmn.scl')
             self.elevation_scaler = joblib.load(f'{self.path}.elevation.scl')
-            self.depth_top_scaler = joblib.load(f'{self.path}.top.scl')
-            self.depth_bot_scaler = joblib.load(f'{self.path}.bot.scl')
+            self.depth_scaler = joblib.load(f'{self.path}.depth.scl')
             self.pca = joblib.load(f'{self.path}.pca')
 
-        if self.df is None:
-            self.df = Data.load('data.parquet')
+        if unlabelled:
+            df = Data.load('unlabelled.parquet')
+        else:
+            df = Data.load('data.parquet')
 
-        X = self.df[self.df[Field.RELATEID] == relate_id.astype(str)]
+        X = df[df[Field.RELATEID] == relate_id]
         X = X.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM])
-        X = X.sort_values([Field.DEPTH_BOT, Field.DEPTH_TOP], ascending=[False, False])
+        X = X.sort_values([Field.DEPTH_TOP])
 
-        X[Field.UTME] = self.utme_scaler.transform(X[[Field.UTME]])
-        X[Field.UTMN] = self.utmn_scaler.transform(X[[Field.UTMN]])
-        X[Field.ELEVATION] = self.elevation_scaler.transform(X[[Field.ELEVATION]])
-        X[Field.DEPTH_TOP] = self.depth_top_scaler.transform(X[[Field.DEPTH_TOP]])
-        X[Field.DEPTH_BOT] = self.depth_bot_scaler.transform(X[[Field.DEPTH_BOT]])
+        X[Field.ELEVATION_TOP] = X[Field.ELEVATION] - X[Field.DEPTH_TOP]
+        X[Field.ELEVATION_BOT] = X[Field.ELEVATION] - X[Field.DEPTH_BOT]
+        X = X.drop(columns=[Field.ELEVATION])
+
+        X[Field.UTME] = self.utme_scaler.transform(X[Field.UTME].values.reshape(-1, 1)).ravel()
+        X[Field.UTMN] = self.utmn_scaler.transform(X[Field.UTMN].values.reshape(-1, 1)).ravel()
+        X[Field.ELEVATION_TOP] = self.elevation_scaler.transform(X[Field.ELEVATION_TOP].values.reshape(-1, 1)).ravel()
+        X[Field.ELEVATION_BOT] = self.elevation_scaler.transform(X[Field.ELEVATION_BOT].values.reshape(-1, 1)).ravel()
+        X[Field.DEPTH_TOP] = self.depth_scaler.transform(X[Field.DEPTH_TOP].values.reshape(-1, 1)).ravel()
+        X[Field.DEPTH_BOT] = self.depth_scaler.transform(X[Field.DEPTH_BOT].values.reshape(-1, 1)).ravel()
+
+        X = utils.encode_color(X)
+        X = utils.encode_hardness(X)
 
         X[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X[[f"emb_{i}" for i in range(384)]])
         X = X.drop(columns=[f"emb_{i}" for i in range(384)])
 
+        age_encoder = Age.init_encoder()
+        texture_encoder = Texture.init_encoder()
+        group_encoder, formation_encoder, member_encoder = Bedrock.init_encoders()
+
         sequential_data = {
             Field.AGE : -1,
-            Field.TEXTURE : -1
+            Field.TEXTURE : -1,
+            Field.GROUP_BOT : group_encoder.transform([None])[0],
+            Field.FORMATION_BOT : formation_encoder.transform([None])[0],
+            Field.MEMBER_BOT : member_encoder.transform([None])[0],
         }
+
+        age_cols = joblib.load(f'{self.path}.age.fts')
+        texture_cols = joblib.load(f'{self.path}.txt.fts')
 
         codes = []
 
         for _, layer in X.iterrows():
             layer[Field.PREVIOUS_AGE] = sequential_data[Field.AGE]
             layer[Field.PREVIOUS_TEXTURE] = sequential_data[Field.TEXTURE]
+            layer[Field.PREVIOUS_GROUP] = sequential_data[Field.GROUP_BOT]
+            layer[Field.PREVIOUS_FORMATION] = sequential_data[Field.FORMATION_BOT]
 
-            age = self.age_model.predict(X)
+            layer = layer.astype(float)
+            layer = layer.to_frame().T
+
+            label_dict = {}
+
+            age_X = layer[age_cols]
+
+            age = self.age_model.predict(age_X)
             sequential_data[Field.AGE] = age
 
-            texture = self.texture_model.predict(X)
-            sequential_data[Field.TEXTURE] = texture
+            label_dict['age'] = age
 
-            pass
+            if age_encoder.inverse_transform([age])[0] in ('Q', 'R'):
+                texture_X = layer[texture_cols]
+
+                texture = self.texture_model.predict(texture_X)
+                sequential_data[Field.TEXTURE] = texture
+
+                label_dict['texture'] = texture
+
+                colors = ['BLACK', 'BROWN', 'BLUE', 'GREEN', 'ORANGE', 'PINK', 'PURPLE', 'RED', 'GRAY', 'WHITE',
+                          'YELLOW', 'VARIED']
+
+                for color in colors:
+                    label_dict[color] = layer[color].values[0]
+
+                codes.append(utils.compile_geocode(label_dict))
+            else:
+                sequential_data[Field.TEXTURE] = -1
+                codes.append((age_encoder.inverse_transform([age])[0]))
+
+
+        return codes
 
     def load_data(self):
         """
         Loads the data set for training and testing
+        :return:
         """
         print("LOADING DATA SET")
 
@@ -122,22 +170,21 @@ class GBTModel:
         X[Field.DEPTH_BOT] = X[Field.DEPTH_BOT].fillna(-25)
         X[Field.DEPTH_TOP] = X[Field.DEPTH_TOP].fillna(-25)
 
+        """Create elevation top and elevation bot features to replace elevation"""
+        X[Field.ELEVATION_TOP] = X[Field.ELEVATION] - X[Field.DEPTH_TOP]
+        X[Field.ELEVATION_BOT] = X[Field.ELEVATION] - X[Field.DEPTH_BOT]
+
+        X = X.drop(columns=[Field.ELEVATION])
+
         y[Field.AGE] = y[Field.AGE].replace(-100, -1)
         y[Field.TEXTURE] = y[Field.TEXTURE].replace(-100, -1)
 
         """Get the info of previous layer for sequential information"""
         X[Field.PREVIOUS_AGE] = y.groupby(df[Field.RELATEID])[Field.AGE].shift(-1).fillna(-1)
         X[Field.PREVIOUS_TEXTURE] = y.groupby(df[Field.RELATEID])[Field.TEXTURE].shift(-1).fillna(-1)
-        X[[f'prev_{group.name}' for group in Bedrock.GROUP_LIST]] = (y.groupby(df[Field.RELATEID])[[group.name for group in Bedrock.GROUP_LIST]]
-                                                                .shift(-1).fillna(0))
-        X[[f'prev_{form.name}' for form in Bedrock.FORMATION_LIST]] = (y.groupby(df[Field.RELATEID])[[form.name for form in Bedrock.FORMATION_LIST]]
-                                                                  .shift(-1).fillna(0))
-        X[[f'prev_{member.name}' for member in Bedrock.MEMBER_LIST]] = (y.groupby(df[Field.RELATEID])[[member.name for member in Bedrock.MEMBER_LIST]]
-                                                                  .shift(-1).fillna(0))
-        X[[f'prev_{cat.name}' for cat in Precambrian.CATEGORY_LIST]] = (y.groupby(df[Field.RELATEID])[[cat.name for cat in Precambrian.CATEGORY_LIST]]
-                                                                   .shift(-1).fillna(0))
-        X[[f'prev_{lith.name}' for lith in Precambrian.LITHOLOGY_LIST]] = (y.groupby(df[Field.RELATEID])[[lith.name for lith in Precambrian.LITHOLOGY_LIST]]
-            .shift(-1).fillna(0))
+        X[Field.PREVIOUS_GROUP] = y.groupby(df[Field.RELATEID])[Field.GROUP_BOT].shift(-1).fillna(-1)
+        X[Field.PREVIOUS_FORMATION] = y.groupby(df[Field.RELATEID])[Field.FORMATION_BOT].shift(-1).fillna(-1)
+        X[Field.PREVIOUS_MEMBER] = y.groupby(df[Field.RELATEID])[Field.MEMBER_BOT].shift(-1).fillna(-1)
 
         mask = y[Field.AGE] != -1
         X = X[mask].reset_index(drop=True)
@@ -154,13 +201,12 @@ class GBTModel:
         self.utmn_scaler.fit(X_train[[Field.UTMN]])
 
         self.elevation_scaler = StandardScaler()
-        self.elevation_scaler.fit(X_train[[Field.ELEVATION]])
+        self.elevation_scaler.fit(X_train[[Field.ELEVATION_TOP]].values.tolist()
+                                  + X_train[[Field.ELEVATION_BOT]].values.tolist())
 
-        self.depth_top_scaler = StandardScaler()
-        self.depth_top_scaler.fit(X_train[[Field.DEPTH_TOP]])
-
-        self.depth_bot_scaler = StandardScaler()
-        self.depth_bot_scaler.fit(X_train[[Field.DEPTH_BOT]])
+        self.depth_scaler = StandardScaler()
+        self.depth_scaler.fit(X_train[[Field.DEPTH_TOP]].values.tolist()
+                                  + X_train[[Field.DEPTH_BOT]].values.tolist())
 
         print('FITTING PCA')
 
@@ -170,8 +216,7 @@ class GBTModel:
         joblib.dump(self.utme_scaler, f'{self.path}.utme.scl')
         joblib.dump(self.utmn_scaler, f'{self.path}.utmn.scl')
         joblib.dump(self.elevation_scaler, f'{self.path}.elevation.scl')
-        joblib.dump(self.depth_top_scaler, f'{self.path}.top.scl')
-        joblib.dump(self.depth_bot_scaler, f'{self.path}.bot.scl')
+        joblib.dump(self.depth_scaler, f'{self.path}.depth.scl')
         joblib.dump(self.pca, f'{self.path}.pca')
 
         print('APPLYING DATA REFINEMENTS')
@@ -181,14 +226,17 @@ class GBTModel:
         X_train[Field.UTMN] = self.utmn_scaler.transform(X_train[[Field.UTMN]])
         X_test[Field.UTMN] = self.utmn_scaler.transform(X_test[[Field.UTMN]])
 
-        X_train[Field.ELEVATION] = self.elevation_scaler.transform(X_train[[Field.ELEVATION]])
-        X_test[Field.ELEVATION] = self.elevation_scaler.transform(X_test[[Field.ELEVATION]])
+        X_train[Field.ELEVATION_TOP] = self.elevation_scaler.transform(X_train[[Field.ELEVATION_TOP]])
+        X_test[Field.ELEVATION_TOP] = self.elevation_scaler.transform(X_test[[Field.ELEVATION_TOP]])
 
-        X_train[Field.DEPTH_BOT] = self.depth_bot_scaler.transform(X_train[[Field.DEPTH_BOT]])
-        X_test[Field.DEPTH_BOT] = self.depth_bot_scaler.transform(X_test[[Field.DEPTH_BOT]])
+        X_train[Field.ELEVATION_BOT] = self.elevation_scaler.transform(X_train[[Field.ELEVATION_BOT]])
+        X_test[Field.ELEVATION_BOT] = self.elevation_scaler.transform(X_test[[Field.ELEVATION_BOT]])
 
-        X_train[Field.DEPTH_TOP] = self.depth_top_scaler.transform(X_train[[Field.DEPTH_TOP]])
-        X_test[Field.DEPTH_TOP] = self.depth_top_scaler.transform(X_test[[Field.DEPTH_TOP]])
+        X_train[Field.DEPTH_BOT] = self.depth_scaler.transform(X_train[[Field.DEPTH_BOT]])
+        X_test[Field.DEPTH_BOT] = self.depth_scaler.transform(X_test[[Field.DEPTH_BOT]])
+
+        X_train[Field.DEPTH_TOP] = self.depth_scaler.transform(X_train[[Field.DEPTH_TOP]])
+        X_test[Field.DEPTH_TOP] = self.depth_scaler.transform(X_test[[Field.DEPTH_TOP]])
 
         X_train[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X_train[[f"emb_{i}" for i in range(384)]])
         X_test[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X_test[[f"emb_{i}" for i in range(384)]])
@@ -205,14 +253,20 @@ class GBTModel:
         self.y_test = y_test
 
     def train_age(self, n_estimators=125):
+        if self.X_train is None:
+            self.load_data()
+
         print('BALANCING DATA SET')
         encoder = Age.init_encoder()
 
         X_train = self.X_train.copy()
         y_train = self.y_train.copy()
 
+        X_test = self.X_test
+
         """Remove noisy/unnecessary features"""
-        X_train = X_train.drop(columns=[])
+        X_train = X_train.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER])
+        X_test = X_test.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER])
 
         drop_dict = {
             'Q': .25
@@ -254,11 +308,12 @@ class GBTModel:
         model.fit(X_train, y_train[Field.AGE])
 
         joblib.dump(model, f'{self.path}.age.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.age.fts')
         self.age_model = model
 
         print('EVALUATING CLASSIFIER')
 
-        y_pred = self.age_model.predict(self.X_test)
+        y_pred = self.age_model.predict(X_test)
 
         print('Accuracy: ', accuracy_score(self.y_test[Field.AGE].tolist(), y_pred))
         print(classification_report(self.y_test[Field.AGE].tolist(), y_pred, zero_division=0))
@@ -272,7 +327,10 @@ class GBTModel:
 
         return report['macro avg']['f1-score'], report['accuracy']
 
-    def train_texture(self, n_estimators=100):
+    def train_texture(self, n_estimators=125):
+        if self.X_train is None:
+            self.load_data()
+
         print('BALANCING DATA SET')
         encoder = Age.init_encoder()
 
@@ -306,6 +364,12 @@ class GBTModel:
 
         X_test = X_test[mask].reset_index(drop=True)
         y_test = y_test[mask].reset_index(drop=True)
+
+        """Drop noise/unnecessary features"""
+        X_train = X_train.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
+                                        Field.PREVIOUS_MEMBER])
+        X_test = X_test.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
+                                        Field.PREVIOUS_MEMBER])
 
         drop_dict = {
             'C': .33,
@@ -345,6 +409,7 @@ class GBTModel:
         model.fit(X_train, y_train[Field.TEXTURE])
 
         joblib.dump(model, f'{self.path}.txt.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.txt.fts')
         self.texture_model = model
 
         print('EVALUATING CLASSIFIER')

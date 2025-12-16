@@ -8,41 +8,59 @@ import warnings
 
 from Data import Field
 
+def init_encoders():
+    """
+    Initializes and fits encoders for group, formation, and member
+    :return: Group encoder, formation encoder, member encoder
+    """
+
+    group_encoder = LabelEncoder()
+    group_encoder.fit([group.name for group in GROUP_LIST] + [None])
+
+    formation_encoder = LabelEncoder()
+    formation_encoder.fit([formation.name for formation in FORMATION_LIST] + [None])
+
+    member_encoder = LabelEncoder()
+    member_encoder.fit([member.name for member in MEMBER_LIST] + [None])
+
+    return group_encoder, formation_encoder, member_encoder
+
 def encode_bedrock(df):
     """
     Determines whether the layer has a bedrock component, and if it does it extracts and encodes it
     :param df: Layer dataframe
-    :return: Bedrock one hot encoded dataframe
+    :return: Bedrock encoded dataframe
     """
 
-    for group in GROUP_LIST:
-        df[group.name] = False
+    group_encoder = LabelEncoder()
+    group_encoder.fit([None] + [group.name for group in GROUP_LIST])
 
-    for formation in FORMATION_LIST:
-        df[formation.name] = False
+    formation_encoder = LabelEncoder()
+    formation_encoder.fit([formation.name for formation in FORMATION_LIST] + [None])
 
-    for member in MEMBER_LIST:
-        df[member.name] = False
+    member_encoder = LabelEncoder()
+    member_encoder.fit([member.name for member in MEMBER_LIST] + [None])
 
-    # Claude was used to vectorize this step below based off my design, as it is way faster when using vectorized operations
+    df[Field.GROUP_TOP] = group_encoder.transform([None])[0]
+    df[Field.GROUP_BOT] = group_encoder.transform([None])[0]
 
-    code_cols = {}
+    df[Field.FORMATION_TOP] = formation_encoder.transform([None])[0]
+    df[Field.FORMATION_BOT] = formation_encoder.transform([None])[0]
+
+    df[Field.MEMBER_TOP] = member_encoder.transform([None])[0]
+    df[Field.MEMBER_BOT] = member_encoder.transform([None])[0]
 
     for key, value in BEDROCK_CODE_MAP.items():
-        cols = []
-
-        for bedrock in value.bedrocks:
-            for unit in bedrock.get_lineage():
-                if isinstance(unit, (Group, Formation, Member)):
-                    cols.append(unit.name)
-
-        code_cols[key] = cols
-
-    for key, value in code_cols.items():
         mask = df[Field.STRAT] == key
 
-        if value:
-            df.loc[mask, list(set(value))] = True
+        df.loc[mask, Field.GROUP_TOP] = group_encoder.transform([value.top_group.name if value.top_group else None])[0]
+        df.loc[mask, Field.GROUP_BOT] = group_encoder.transform([value.bot_group.name if value.bot_group else None])[0]
+
+        df.loc[mask, Field.FORMATION_TOP] = formation_encoder.transform([value.top_formation.name if value.top_formation else None])[0]
+        df.loc[mask, Field.FORMATION_BOT] = formation_encoder.transform([value.bot_formation.name if value.bot_formation else None])[0]
+
+        df.loc[mask, Field.MEMBER_TOP] = member_encoder.transform([value.top_member.name if value.top_member else None])[0]
+        df.loc[mask, Field.MEMBER_BOT] = member_encoder.transform([value.bot_member.name if value.bot_member else None])[0]
 
     return df
 
@@ -254,7 +272,7 @@ FORMATION_LIST = [
 ]
 FORMATION_DICT = {formation.name: formation for formation in FORMATION_LIST}
 
-### BEDROCK MEMBERS ###
+"""BEDROCK MEMBERS"""
 Blue_Hill = Member('Blue Hill', parent=Carlile_Shale)
 Codell_Sandstone = Member('Codell Sandstone', parent=Carlile_Shale)
 Fairport = Member('Fairport', parent=Carlile_Shale)

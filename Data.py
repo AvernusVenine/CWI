@@ -31,10 +31,15 @@ class Field:
     LITH_PRIM = 'lith_prim'
     PREVIOUS_AGE = 'prev_age'
     PREVIOUS_TEXTURE = 'prev_text'
-    PREVIOUS_GROUP_TOP = 'prev_group_top'
-    PREVIOUS_GROUP_BOT = 'prev_group_bot'
-    PREVIOUS_FORMATION_TOP = 'prev_form_top'
-    PREVIOUS_FORMATION_BOT = 'prev_form_bot'
+    GROUP_TOP = 'group_top'
+    GROUP_BOT = 'group_bot'
+    PREVIOUS_GROUP = 'prev_group'
+    FORMATION_TOP = 'form_top'
+    FORMATION_BOT = 'form_bot'
+    PREVIOUS_FORMATION = 'prev_form'
+    MEMBER_TOP = 'member_top'
+    MEMBER_BOT = 'member_bot'
+    PREVIOUS_MEMBER = 'prev_member'
 
 def load(path):
     """

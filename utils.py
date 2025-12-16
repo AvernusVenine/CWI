@@ -58,8 +58,10 @@ def SMOTE_gbt(X, y, value, count, col):
                                              max(X.iloc[idx_one][Field.UTME], X.iloc[idx_two][Field.UTME]))
         new_row[Field.UTMN] = random.uniform(min(X.iloc[idx_one][Field.UTMN], X.iloc[idx_two][Field.UTMN]),
                                              max(X.iloc[idx_one][Field.UTMN], X.iloc[idx_two][Field.UTMN]))
-        new_row[Field.ELEVATION] = random.uniform(min(X.iloc[idx_one][Field.ELEVATION], X.iloc[idx_two][Field.ELEVATION]),
-                                                  max(X.iloc[idx_one][Field.ELEVATION], X.iloc[idx_two][Field.ELEVATION]))
+        new_row[Field.ELEVATION_BOT] = random.uniform(min(X.iloc[idx_one][Field.ELEVATION_BOT], X.iloc[idx_two][Field.ELEVATION_BOT]),
+                                                  max(X.iloc[idx_one][Field.ELEVATION_BOT], X.iloc[idx_two][Field.ELEVATION_BOT]))
+        new_row[Field.ELEVATION_TOP] = random.uniform(min(X.iloc[idx_one][Field.ELEVATION_TOP], X.iloc[idx_two][Field.ELEVATION_TOP]),
+                                                  max(X.iloc[idx_one][Field.ELEVATION_TOP], X.iloc[idx_two][Field.ELEVATION_TOP]))
         new_row[Field.DEPTH_BOT] = random.uniform(min(X.iloc[idx_one][Field.DEPTH_BOT], X.iloc[idx_two][Field.DEPTH_BOT]),
                                                   max(X.iloc[idx_one][Field.DEPTH_BOT], X.iloc[idx_two][Field.DEPTH_BOT]))
         new_row[Field.DEPTH_TOP] = random.uniform(min(X.iloc[idx_one][Field.DEPTH_TOP], X.iloc[idx_two][Field.DEPTH_TOP]),
@@ -289,6 +291,7 @@ def encode_color(df):
         'PUR' : 'PURPLE',
         'RED' : 'RED',
         'SLV' : 'GRAY',
+        'GRY' : 'GRAY',
         'SILVER' : 'GRAY',
         'TAN' : 'BROWN',
         'WHT' : 'WHITE',
