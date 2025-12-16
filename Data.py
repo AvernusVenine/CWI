@@ -40,10 +40,8 @@ class Field:
     INTERPRETATION_METHOD = 'strat_mc'
     TEXTURE = 'texture'
     LITH_PRIM = 'lith_prim'
-
-
-GENERAL_DROPPED_COLUMNS = [Field.RELATEID, Field.DRILLER_DESCRIPTION, Field.COLOR, Field.WEIGHT, Field.STRAT, Field.DATA_SOURCE,
-                     Field.INTERPRETATION_METHOD]
+    PREVIOUS_AGE = 'prev_age'
+    PREVIOUS_TEXTURE = 'prev_text'
 
 def load(path):
     """
@@ -54,51 +52,6 @@ def load(path):
     df = pd.read_parquet(f'{config.DATA_PATH}/{path}')
 
     return df
-
-#TODO: This no longer works with the RNN, need to create a different version
-def fit_smote(X_df : pd.DataFrame, y_df : pd.DataFrame, count : int, label : int, label_col : str, random_state : int, data_cols : list):
-    """
-    A custom SMOTE function that only creates data points from given data columns while directly duplicating the rest
-    Typically, this means duplicating spatial information while ignoring the embedded text values and categorical features
-    :param X_df: Features dataframe
-    :param y_df: Label dataframe
-    :param count: Total amount of datapoints to return, including real ones
-    :param label: Label to apply SMOTE to
-    :param label_col: Label column name
-    :param random_state: Random seed
-    :param data_cols: Data columns to create new data points for instead of just duplicating
-    :return: Dataframe containing additional datapoints
-    """
-    random.seed(random_state)
-
-    X_filtered_df = X_df[y_df[label_col] == label]
-    df_size = X_filtered_df.shape[0]
-
-    X_new = []
-    y_new = []
-
-    for i in range(count):
-        df_index_one = random.randint(0, df_size - 1)
-        df_index_two = random.randint(0, df_size - 1)
-
-        new_row = X_filtered_df.iloc[df_index_one].copy()
-
-        """Draw a 'line' between two datapoints of the same field and randomly select a value on it"""
-        for col in data_cols:
-            df_val_one = X_filtered_df.iloc[df_index_one][col]
-            df_val_two = X_filtered_df.iloc[df_index_two][col]
-
-            rand_float = random.uniform(min(df_val_one, df_val_two), max(df_val_one, df_val_two))
-
-            new_row[col] = rand_float
-
-        X_new.append(new_row)
-        y_new.append(label)
-
-    X_new = pd.DataFrame(X_new)
-    y_new = pd.DataFrame(y_new, columns=[label_col])
-
-    return pd.concat([X_df, X_new], ignore_index=True), pd.concat([y_df, y_new], ignore_index=True)
 
 def load_and_embed(subset=None):
     """

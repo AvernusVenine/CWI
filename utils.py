@@ -39,6 +39,40 @@ def reduce_majority(X, y, percentage_dict):
 
     return X, y
 
+def SMOTE_gbt(X, y, value, count, col):
+    mask = y[col] == value
+    indices = np.where(mask)[0]
+
+    X_new = []
+    y_new = []
+
+    for _ in range(count):
+        idx_one = np.random.choice(indices)
+        idx_two = np.random.choice(indices)
+
+        new_row = X.iloc[idx_one].copy()
+
+        """Create a hyperplane between the two datapoints and randomly select a value on it"""
+
+        new_row[Field.UTME] = random.uniform(min(X.iloc[idx_one][Field.UTME], X.iloc[idx_two][Field.UTME]),
+                                             max(X.iloc[idx_one][Field.UTME], X.iloc[idx_two][Field.UTME]))
+        new_row[Field.UTMN] = random.uniform(min(X.iloc[idx_one][Field.UTMN], X.iloc[idx_two][Field.UTMN]),
+                                             max(X.iloc[idx_one][Field.UTMN], X.iloc[idx_two][Field.UTMN]))
+        new_row[Field.ELEVATION] = random.uniform(min(X.iloc[idx_one][Field.ELEVATION], X.iloc[idx_two][Field.ELEVATION]),
+                                                  max(X.iloc[idx_one][Field.ELEVATION], X.iloc[idx_two][Field.ELEVATION]))
+        new_row[Field.DEPTH_BOT] = random.uniform(min(X.iloc[idx_one][Field.DEPTH_BOT], X.iloc[idx_two][Field.DEPTH_BOT]),
+                                                  max(X.iloc[idx_one][Field.DEPTH_BOT], X.iloc[idx_two][Field.DEPTH_BOT]))
+        new_row[Field.DEPTH_TOP] = random.uniform(min(X.iloc[idx_one][Field.DEPTH_TOP], X.iloc[idx_two][Field.DEPTH_TOP]),
+                                                  max(X.iloc[idx_one][Field.DEPTH_TOP], X.iloc[idx_two][Field.DEPTH_TOP]))
+
+        X_new.append(new_row)
+        y_new.append(y.iloc[idx_two])
+
+    X_new = pd.DataFrame(X_new)
+    y_new = pd.DataFrame(y_new)
+
+    return pd.concat([X, X_new], ignore_index=True), pd.concat([y, y_new], ignore_index=True)
+
 def SMOTE_shallow(X, y, top_col, bot_col, elev_col, utme_col, utmn_col, value_dict):
     """
     Used to create synthetic data points for the ages 'BSMT', 'PITT', and 'PVMT'
@@ -327,7 +361,11 @@ def sequence_layers(df):
         X.append(hole.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM] + y_cols).to_numpy(dtype=float))
         y.append(hole[y_cols].to_numpy())
 
-    return X, y, y_cols
+    valid = [i for i in range(len(y)) if not np.all(y[i][:, 0] == -100)]
+    X = [X[i] for i in valid]
+    y = [y[i] for i in valid]
+
+    return X, y
 
 def rnn_collate_fn(batch):
     """
@@ -336,9 +374,12 @@ def rnn_collate_fn(batch):
     :param batch: List of data points in a batch
     :return: Padded data, padded labels, original lengths
     """
+
+    # Claude was used to help bug fix this based off my original design
+
     features, labels = zip(*batch)
 
-    features_padded = pad_sequence(features, batch_first=True, padding_value=0.0)
+    features_padded = pad_sequence(features, batch_first=True, padding_value=-1.0)
 
     age_padded = pad_sequence([label['age'] for label in labels], batch_first=True, padding_value=-100)
     texture_padded = pad_sequence([label['texture'] for label in labels], batch_first=True, padding_value=-100)
@@ -359,16 +400,3 @@ def rnn_collate_fn(batch):
     }
 
     return features_padded, labels_padded
-
-def graph_loss(train, test):
-    epochs = range(1, len(train) + 1)
-
-    plt.plot(epochs, train, label='Training Loss')
-    plt.plot(epochs, test, label='Test Loss')
-
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('loss_plot.png')

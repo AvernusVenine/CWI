@@ -1,4 +1,7 @@
+from collections import defaultdict
+
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
@@ -50,7 +53,7 @@ class LayerDataset(Dataset):
         return data, label_dict
 
 class LayerRNN(nn.Module):
-    def __init__(self, input_size, hidden_size=128, num_layers=2):
+    def __init__(self, input_size, hidden_size=256, num_layers=2):
         super(LayerRNN, self).__init__()
 
         self.input_size = input_size
@@ -65,7 +68,7 @@ class LayerRNN(nn.Module):
         self.num_categories = len(Precambrian.CATEGORY_LIST)
         self.num_lithologies = len(Precambrian.LITHOLOGY_LIST)
 
-        self.feature_rnn = nn.LSTM(
+        self.rnn = nn.LSTM(
             input_size=input_size,
             hidden_size=self.hidden_size,
             num_layers=num_layers,
@@ -73,52 +76,14 @@ class LayerRNN(nn.Module):
             bidirectional=True
         )
 
-        combined_size = hidden_size * 2 + input_size
-
         self.age_linear = nn.Sequential(
-            nn.Linear(combined_size, 512),
+            nn.Linear(2 * self.hidden_size, 512),
             nn.ReLU(),
-            nn.Dropout(.5),
-            nn.Linear(512, self.num_ages)
-        )
-
-        self.texture_linear = nn.Sequential(
-            nn.Linear(combined_size + self.num_ages, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.num_textures)
-        )
-
-        self.group_linear = nn.Sequential(
-            nn.Linear(combined_size + self.num_ages, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.num_groups)
-        )
-
-        self.formation_linear = nn.Sequential(
-            nn.Linear(combined_size + self.num_groups, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.num_formations)
-        )
-
-        self.member_linear = nn.Sequential(
-            nn.Linear(combined_size + self.num_formations, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.num_members)
-        )
-
-        self.category_linear = nn.Sequential(
-            nn.Linear(combined_size + self.num_ages, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.num_categories)
-        )
-
-        self.lithology_linear = nn.Sequential(
-            nn.Linear(combined_size + self.num_ages + self.num_categories, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.num_lithologies)
+            nn.Linear(512, self.num_ages),
         )
 
     def forward(self, X):
+        """This originally was going to compute more labels, but was never implemented"""
         output = {}
 
         h0 = torch.zeros(
@@ -133,48 +98,16 @@ class LayerRNN(nn.Module):
             self.hidden_size
         ).to(X.device)
 
-        X_rnn, _ = self.feature_rnn(X, (h0, c0))
+        """Pass that feature set through the Recurrent layer"""
+        X_rnn, _ = self.rnn(X, (h0, c0))
 
         batch_size, seq_len, hidden_dim = X_rnn.shape
 
         X_rnn = X_rnn.reshape(batch_size * seq_len, hidden_dim)
-        X = X.reshape(batch_size * seq_len, self.input_size)
 
-        X = torch.cat([X, X_rnn], dim=1)
-
-        age = self.age_linear(X)
+        age = self.age_linear(X_rnn)
         age = age.reshape(batch_size * seq_len, self.num_ages)
         output['age'] = age
-
-        age = torch.softmax(age, dim=1).detach()
-        X_age = torch.cat([X, age], dim=1)
-
-        output['texture'] = self.texture_linear(X_age).reshape(batch_size * seq_len, self.num_textures)
-
-        group = self.group_linear(X_age)
-        group = group.reshape(batch_size * seq_len, self.num_groups)
-        output['group'] = group
-
-        group = torch.sigmoid(group).detach()
-        X_group = torch.cat([X, group], dim=1)
-
-        formation = self.formation_linear(X_group)
-        formation = formation.reshape(batch_size * seq_len, self.num_formations)
-        output['formation'] = formation
-
-        formation = torch.sigmoid(formation).detach()
-        X_formation = torch.cat([X, formation], dim=1)
-
-        output['member'] = self.member_linear(X_formation).reshape(batch_size * seq_len, self.num_members)
-
-        category = self.category_linear(X_age)
-        category = category.reshape(batch_size * seq_len, self.num_categories)
-        output['category'] = category
-
-        category = torch.sigmoid(category).detach()
-        X_category = torch.cat([X, age, category], dim=1)
-
-        output['lithology'] = self.lithology_linear(X_category).reshape(batch_size * seq_len, self.num_lithologies)
 
         return output
 
@@ -203,97 +136,12 @@ class RNNLoss(nn.Module):
         self.bce_loss = nn.BCEWithLogitsLoss()
 
     def forward(self, y_pred, y_true):
-        total_loss = 0
-
         age_pred_flat = y_pred['age'].reshape(-1, y_pred['age'].size(-1))
         age_true_flat = y_true['age'].reshape(-1).long()
 
         age_loss = self.age_loss(age_pred_flat, age_true_flat)
-        total_loss = total_loss + self.age_weight * age_loss
 
         return age_loss
-
-        texture_pred_flat = y_pred['texture'].reshape(-1, y_pred['texture'].size(-1))
-        texture_true_flat = y_true['texture'].reshape(-1).long()
-        texture_loss = self.texture_loss(texture_pred_flat, texture_true_flat)
-        total_loss = total_loss + self.texture_weight * texture_loss
-
-        """Apply a lower weight to layers that have no groups due to their abundance"""
-        # Claude was used to help generate this based off my original design
-        group_pred_flat = y_pred['group'].reshape(-1, y_pred['group'].size(-1))
-        group_true_flat = y_true['group'].reshape(-1, y_true['group'].size(-1))
-
-        group_mask = (group_true_flat.sum(dim=1) == 0)
-        group_weights = torch.ones(group_true_flat.size(0), device=group_true_flat.device)
-        group_weights[group_mask] = self.no_label_weight
-        group_weights = group_weights.unsqueeze(1).expand_as(group_true_flat)
-
-        weighted_group_loss = nn.BCEWithLogitsLoss(weight=group_weights)
-
-        group_loss = weighted_group_loss(group_pred_flat, group_true_flat)
-        total_loss = total_loss + self.group_weight * group_loss
-
-        """Apply a lower weight to layers that have no formations due to their abundance"""
-
-        formation_pred_flat = y_pred['formation'].reshape(-1, y_pred['formation'].size(-1))
-        formation_true_flat = y_true['formation'].reshape(-1, y_true['formation'].size(-1))
-
-        formation_mask = (formation_true_flat.sum(dim=1) == 0)
-        formation_weights = torch.ones(formation_true_flat.size(0), device=formation_true_flat.device)
-        formation_weights[formation_mask] = self.no_label_weight
-        formation_weights = formation_weights.unsqueeze(1).expand_as(formation_true_flat)
-
-        weighted_formation_loss = nn.BCEWithLogitsLoss(weight=formation_weights)
-
-        formation_loss = weighted_formation_loss(formation_pred_flat, formation_true_flat)
-        total_loss = total_loss + self.formation_weight * formation_loss
-
-        """Apply a lower weight to layers that have no members due to their abundance"""
-
-        member_pred_flat = y_pred['member'].reshape(-1, y_pred['member'].size(-1))
-        member_true_flat = y_true['member'].reshape(-1, y_true['member'].size(-1))
-
-        member_mask = (member_true_flat.sum(dim=1) == 0)
-        member_weights = torch.ones(member_true_flat.size(0), device=member_true_flat.device)
-        member_weights[member_mask] = self.no_label_weight
-        member_weights = member_weights.unsqueeze(1).expand_as(member_true_flat)
-
-        weighted_member_loss = nn.BCEWithLogitsLoss(weight=member_weights)
-
-        member_loss = weighted_member_loss(member_pred_flat, member_true_flat)
-        total_loss = total_loss + self.member_weight * member_loss
-
-        """Apply a lower weight to layers that have no categories due to their abundance"""
-
-        category_pred_flat = y_pred['category'].reshape(-1, y_pred['category'].size(-1))
-        category_true_flat = y_true['category'].reshape(-1, y_true['category'].size(-1))
-
-        category_mask = (category_true_flat.sum(dim=1) == 0)
-        category_weights = torch.ones(category_true_flat.size(0), device=category_true_flat.device)
-        category_weights[category_mask] = self.no_label_weight
-        category_weights = category_weights.unsqueeze(1).expand_as(category_true_flat)
-
-        weighted_category_loss = nn.BCEWithLogitsLoss(weight=category_weights)
-
-        category_loss = weighted_category_loss(category_pred_flat, category_true_flat)
-        total_loss = total_loss + self.category_weight * category_loss
-
-        """Apply a lower weight to layers that have no lithologies due to their abundance"""
-
-        lithology_pred_flat = y_pred['lithology'].reshape(-1, y_pred['lithology'].size(-1))
-        lithology_true_flat = y_true['lithology'].reshape(-1, y_true['lithology'].size(-1))
-
-        lithology_mask = (lithology_true_flat.sum(dim=1) == 0)
-        lithology_weights = torch.ones(lithology_true_flat.size(0), device=lithology_true_flat.device)
-        lithology_weights[lithology_mask] = self.no_label_weight
-        lithology_weights = lithology_weights.unsqueeze(1).expand_as(lithology_true_flat)
-
-        weighted_lithology_loss = nn.BCEWithLogitsLoss(weight=lithology_weights)
-
-        lithology_loss = weighted_lithology_loss(lithology_pred_flat, lithology_true_flat)
-        total_loss = total_loss + self.lithology_weight * lithology_loss
-
-        return total_loss
 
 
 def train_loop(train_loader, model, device, loss_func, optimizer):
@@ -309,24 +157,20 @@ def train_loop(train_loader, model, device, loss_func, optimizer):
     model.train()
     total_loss = 0
 
-    initial_weights = model.age_linear[0].weight.clone()
+    optimizer.zero_grad()
 
-    for X, y in train_loader:
+    for idx, (X, y) in enumerate(train_loader):
         X = X.to(device)
         y = {k: v.to(device) for k, v in y.items()}
 
         outputs = model(X)
         loss = loss_func(outputs, y)
-
-        optimizer.zero_grad()
         loss.backward()
+
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         total_loss = total_loss + loss.item()
-
-    weight_diff = (model.age_linear[0].weight - initial_weights).abs().mean()
-    print(f"Weight change: {weight_diff:.6f}")
 
     return total_loss/len(train_loader)
 
@@ -355,7 +199,12 @@ def test_loop(test_loader, model, device, loss_func):
 
     return total_loss/len(test_loader)
 
+
 class LayerRNNModel:
+    """
+    This encapsulates the Recurrent Neural Network solution.  It can be trained via its respective function
+    however the test function was never fully completed.
+    """
     def __init__(self, path):
         self.model = None
         self.pca = None
@@ -448,36 +297,47 @@ class LayerRNNModel:
 
         return output
 
-    def train(self, random_state=0, max_epochs=10, lr=1e-4, retrain=True):
+    def load_and_encode(self):
+
+        pass
+
+    def train(self, random_state=0, max_epochs=10, lr=1e-4, retrain=True, X=None, y=None):
+        if X is not None and y is not None:
+            self.X = X
+            self.y = y
+
         if self.df is None:
             print("LOADING DATA SET")
 
-            df = Data.load('data.parquet')
+            if os.path.isfile(f'{self.path}_data.parquet'):
+                self.df = pd.read_parquet(f'{self.path}_data.parquet')
+            else:
+                df = Data.load('data.parquet')
 
-            print('ENCODING DATA')
-            df = Age.encode_age(df)
-            df = Texture.encode_texture(df)
-            df = Bedrock.encode_bedrock(df)
-            df = Precambrian.encode_precambrian(df)
+                print('ENCODING DATA')
+                df = Age.encode_age(df)
+                df = Texture.encode_texture(df)
+                df = Bedrock.encode_bedrock(df)
+                df = Precambrian.encode_precambrian(df)
 
-            df = utils.encode_hardness(df)
-            df = utils.encode_color(df)
+                df = utils.encode_hardness(df)
+                df = utils.encode_color(df)
 
-            df[Field.UTME] = df[Field.UTME].fillna(df[Field.UTME].min() * .9)
-            df[Field.UTMN] = df[Field.UTMN].fillna(df[Field.UTMN].min() * .9)
-            df[Field.ELEVATION] = df[Field.ELEVATION].fillna(df[Field.ELEVATION].min() * .8)
+                df[Field.UTME] = df[Field.UTME].fillna(df[Field.UTME].min() * .9)
+                df[Field.UTMN] = df[Field.UTMN].fillna(df[Field.UTMN].min() * .9)
+                df[Field.ELEVATION] = df[Field.ELEVATION].fillna(df[Field.ELEVATION].min() * .8)
 
-            """Have to reorder the columns before we convert them into a numpy array"""
-            embedded_cols = [f"emb_{i}" for i in range(384)]
-            other_cols = [col for col in df.columns if col not in embedded_cols]
-            df = df[other_cols + embedded_cols]
+                """Have to reorder the columns before we convert them into a numpy array"""
+                embedded_cols = [f"emb_{i}" for i in range(384)]
+                other_cols = [col for col in df.columns if col not in embedded_cols + [Field.HARDNESS]]
+                df = df[other_cols + [Field.HARDNESS] + embedded_cols]
 
-            self.df = df
+                df.to_parquet(f'{self.path}_data.parquet')
 
-        X, y, y_cols = utils.sequence_layers(self.df)
+                self.df = df
 
-        self.X = X
-        self.y = y
+        print("SEQUENCING DATA")
+        X, y = utils.sequence_layers(self.df)
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=random_state)
 
@@ -486,7 +346,6 @@ class LayerRNNModel:
         elevation_idx = self.df.columns.get_loc(Field.ELEVATION)
         top_idx = self.df.columns.get_loc(Field.DEPTH_TOP)
         bot_idx = self.df.columns.get_loc(Field.DEPTH_BOT)
-        age_idx = self.df.columns.get_loc(Field.AGE)
 
         if retrain:
 
@@ -562,14 +421,12 @@ class LayerRNNModel:
 
         print('BALANCING DATA SET')
         X_train, y_train = utils.reduce_majority(X_train, y_train, {
-            'Q': .1
+            'Q': .1,
+            'O': .5,
+            'E': .5,
+            'C': .5,
+            'R': .5,
         })
-        X_train, y_train = utils.SMOTE_shallow(X_train, y_train, top_idx, bot_idx, elevation_idx, utme_idx, utmn_idx,
-            value_dict={
-                'X': 4000,
-                'Y': 4000,
-                'B': 4000
-            })
 
         print("APPLYING DATA REFINEMENTS")
 
@@ -623,7 +480,7 @@ class LayerRNNModel:
         print("INITIATING MODEL")
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.model = LayerRNN(X_train_pca[0].shape[1], hidden_size=512, num_layers=2)
+        self.model = LayerRNN(X_train_pca[0].shape[1])
         self.model = self.model.to(device)
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -653,3 +510,4 @@ class LayerRNNModel:
                 with open(f'{self.path}.json', 'w') as f:
                     json.dump(params, f)
 
+        return train_losses, test_losses
