@@ -1,19 +1,15 @@
 import numpy as np
-import pandas as pd
 import joblib
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-import matplotlib.pyplot as plt
 
 import Bedrock
 import Precambrian
 import Age
 import Texture
-import config
 import xgboost
-import cupy
 from sklearn.multiclass import OneVsRestClassifier
 import os
 
@@ -22,11 +18,6 @@ from Data import Field
 import utils
 
 class GBTModel:
-    """
-    This encapsulates the Gradient Boosted Trees solution to the data set.  In it, there are currently 4 implemented
-    sub-models which can be trained via their respective function.  All the auxiliary files have also been included,
-    but there are a lot so all things related to the model itself are included here.
-    """
     def __init__(self, path, random_state=0):
         self.random_state = random_state
 
@@ -104,6 +95,9 @@ class GBTModel:
             pass
 
     def load_data(self):
+        """
+        Loads the data set for training and testing
+        """
         print("LOADING DATA SET")
 
         df = Data.load('data.parquet')
@@ -210,12 +204,15 @@ class GBTModel:
         self.y_train = y_train
         self.y_test = y_test
 
-    def train_age(self, n_estimators=100):
+    def train_age(self, n_estimators=125):
         print('BALANCING DATA SET')
         encoder = Age.init_encoder()
 
         X_train = self.X_train.copy()
         y_train = self.y_train.copy()
+
+        """Remove noisy/unnecessary features"""
+        X_train = X_train.drop(columns=[])
 
         drop_dict = {
             'Q': .25

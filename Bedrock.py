@@ -78,74 +78,71 @@ class Member(Bedrock):
 class GeoCode:
 
     def __init__(self, bedrocks):
-        if isinstance(bedrocks, list):
-            self.bedrocks = bedrocks
+        if not isinstance(bedrocks, list):
+            self.top = bedrocks
+            self.bot = bedrocks
         else:
-            self.bedrocks = [bedrocks]
+            self.top = bedrocks[0]
+            self.bot = bedrocks[1]
+
 
     def __eq__(self, other):
-
         if not isinstance(other, GeoCode):
             return False
 
-        members = self.members == other.members
-        formations = self.formations == other.formations
-        groups = self.groups == other.groups
-        ages = self.ages == other.ages
+        groups = (self.top_group == other.top_group) & (self.bot_group == other.bot_group)
+        formations = (self.top_formation == other.top_formation) & (self.bot_formation == other.bot_formation)
+        members = (self.top_member == other.top_member) & (self.bot_member == other.bot_member)
 
-        return members and formations and groups and ages
-
-    @property
-    def members(self):
-        lst = set()
-
-        for bedrock in self.bedrocks:
-            lineage = bedrock.get_lineage()
-
-            for item in lineage:
-                if isinstance(item, Member):
-                    lst.add(item)
-
-        return list(lst)
+        return members and formations and groups
 
     @property
-    def formations(self):
-        lst = set()
+    def top_group(self):
+        for item in self.top.get_lineage():
+            if isinstance(item, Group):
+                return item
 
-        for bedrock in self.bedrocks:
-            lineage = bedrock.get_lineage()
-
-            for item in lineage:
-                if isinstance(item, Formation):
-                    lst.add(item)
-
-        return list(lst)
+        return None
 
     @property
-    def groups(self):
-        lst = set()
+    def top_formation(self):
+        for item in self.top.get_lineage():
+            if isinstance(item, Formation):
+                return item
 
-        for bedrock in self.bedrocks:
-            lineage = bedrock.get_lineage()
-
-            for item in lineage:
-                if isinstance(item, Group):
-                    lst.add(item)
-
-        return list(lst)
+        return None
 
     @property
-    def ages(self):
-        lst = set()
+    def top_member(self):
+        for item in self.top.get_lineage():
+            if isinstance(item, Member):
+                return item
 
-        for bedrock in self.bedrocks:
-            lineage = bedrock.get_lineage()
+        return None
 
-            for item in lineage:
-                if isinstance(item, Age):
-                    lst.add(item)
+    @property
+    def bot_group(self):
+        for item in self.bot.get_lineage():
+            if isinstance(item, Group):
+                return item
 
-        return list(lst)
+        return None
+
+    @property
+    def bot_formation(self):
+        for item in self.bot.get_lineage():
+            if isinstance(item, Formation):
+                return item
+
+        return None
+
+    @property
+    def bot_member(self):
+        for item in self.bot.get_lineage():
+            if isinstance(item, Member):
+                return item
+
+        return None
 
 """BEDROCK AGES"""
 
@@ -155,10 +152,10 @@ Cambrian = Age('Cambrian')
 Precambrian = Age('Precambrian')
 Cretaceous = Age('Cretaceous')
 
-### BEDROCK GROUPS ###
+"""BEDROCK GROUPS"""
 Cedar_Valley = Group('Cedar Valley', parent=Devonian)
-Upper_Cedar = Group('Upper Cedar Valley', parent=Cedar_Valley)
-Lower_Cedar = Group('Lower Cedar Valley', parent=Cedar_Valley)
+Upper_Cedar = Group('Upper Cedar Valley', parent=Devonian)
+Lower_Cedar = Group('Lower Cedar Valley', parent=Devonian)
 Wapsipinicon = Group('Wapsipinicon', parent=Devonian)
 Galena = Group('Galena', parent=Ordovician)
 Prairie_Du_Chien = Group('Prairie Du Chien', parent=Ordovician)
@@ -344,7 +341,7 @@ BEDROCK_CODE_MAP = {
     'KWND' : GeoCode(Windrow),
     'KWOS' : GeoCode(Ostrander),
 
-    'DCVU' : GeoCode(Cedar_Valley),
+    'DCVU' : GeoCode(Upper_Cedar),
     'DLGH' : GeoCode(Lithograph_City),
     'DCRL' : GeoCode(Coralville),
     'DCUM' : GeoCode([Hinckle, Coralville]),
