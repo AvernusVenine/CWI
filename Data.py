@@ -13,6 +13,9 @@ import config
 
 DATA_PATH = 'compiled_data/data.parquet'
 
+COLORS = ['BLACK', 'BROWN', 'BLUE', 'GREEN', 'ORANGE', 'PINK', 'PURPLE', 'RED', 'GRAY', 'WHITE', 'LIGHT', 'DARK',
+          'YELLOW', 'VARIED']
+
 class Field:
     UTME = 'utme'
     UTMN = 'utmn'
@@ -24,6 +27,7 @@ class Field:
     AGE = 'age'
     DEPTH_TOP = 'depth_top'
     DEPTH_BOT = 'depth_bot'
+    DEPTH = 'depth'
     COLOR = 'color'
     HARDNESS = 'hardness'
     DRILLER_DESCRIPTION = 'drllr_desc'
@@ -31,15 +35,21 @@ class Field:
     LITH_PRIM = 'lith_prim'
     PREVIOUS_AGE = 'prev_age'
     PREVIOUS_TEXTURE = 'prev_text'
+    GROUP = 'group'
     GROUP_TOP = 'group_top'
     GROUP_BOT = 'group_bot'
     PREVIOUS_GROUP = 'prev_group'
+    FORMATION = 'form'
     FORMATION_TOP = 'form_top'
     FORMATION_BOT = 'form_bot'
     PREVIOUS_FORMATION = 'prev_form'
+    MEMBER = 'member'
     MEMBER_TOP = 'member_top'
     MEMBER_BOT = 'member_bot'
     PREVIOUS_MEMBER = 'prev_member'
+
+def load_raw():
+    return pd.read_csv(f'{config.RAW_DATA_PATH}/c5st.csv', low_memory=False, on_bad_lines='skip')
 
 def load(path):
     """

@@ -46,10 +46,164 @@ class GBTModel:
 
         self.X_train = None
 
+    def test_database(self, start=0):
+        warnings.filterwarnings('ignore')
+
+        if self.age_model is None or self.texture_model is None:
+            self.age_model = joblib.load(f'{self.path}.age.mdl')
+            self.age_model.set_params(device='cpu')
+            self.texture_model = joblib.load(f'{self.path}.txt.mdl')
+            self.texture_model.set_params(device='cpu')
+
+            self.utme_scaler = joblib.load(f'{self.path}.utme.scl')
+            self.utmn_scaler = joblib.load(f'{self.path}.utmn.scl')
+            self.elevation_scaler = joblib.load(f'{self.path}.elevation.scl')
+            self.depth_scaler = joblib.load(f'{self.path}.depth.scl')
+            self.pca = joblib.load(f'{self.path}.pca')
+
+        df = Data.load('data.parquet')
+
+        df = df.sort_values([Field.RELATEID, Field.DEPTH_TOP], ascending=[True, False])
+        y = df[Field.STRAT]
+        X = df.drop(columns=[Field.STRAT, Field.LITH_PRIM])
+
+        X[Field.ELEVATION_TOP] = X[Field.ELEVATION] - X[Field.DEPTH_TOP]
+        X[Field.ELEVATION_BOT] = X[Field.ELEVATION] - X[Field.DEPTH_BOT]
+        X = X.drop(columns=[Field.ELEVATION])
+
+        X[Field.UTME] = self.utme_scaler.transform(X[Field.UTME].values.reshape(-1, 1)).ravel()
+        X[Field.UTMN] = self.utmn_scaler.transform(X[Field.UTMN].values.reshape(-1, 1)).ravel()
+        X[Field.ELEVATION_TOP] = self.elevation_scaler.transform(X[Field.ELEVATION_TOP].values.reshape(-1, 1)).ravel()
+        X[Field.ELEVATION_BOT] = self.elevation_scaler.transform(X[Field.ELEVATION_BOT].values.reshape(-1, 1)).ravel()
+        X[Field.DEPTH_TOP] = self.depth_scaler.transform(X[Field.DEPTH_TOP].values.reshape(-1, 1)).ravel()
+        X[Field.DEPTH_BOT] = self.depth_scaler.transform(X[Field.DEPTH_BOT].values.reshape(-1, 1)).ravel()
+
+        X = utils.encode_color(X)
+        X = utils.encode_hardness(X)
+
+        X[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X[[f"emb_{i}" for i in range(384)]])
+        X = X.drop(columns=[f"emb_{i}" for i in range(384)])
+
+        age_encoder = Age.init_encoder()
+        texture_encoder = Texture.init_encoder()
+        group_encoder, formation_encoder, member_encoder = Bedrock.init_encoders()
+
+        age_cols = joblib.load(f'{self.path}.age.fts')
+        texture_cols = joblib.load(f'{self.path}.txt.fts')
+
+        err_df = pd.DataFrame(columns=['relateid', 'index', 'true', 'prediction'])
+
+        for relate_id in df[Field.RELATEID].unique().tolist():
+
+            if relate_id < start:
+                continue
+
+            mask = X[Field.RELATEID] == relate_id
+
+            well = X[mask].drop(columns=[Field.RELATEID])
+
+            old_codes = y[mask].values.tolist()
+
+            print(old_codes)
+
+            sequential_data = {
+                Field.AGE: -1,
+                Field.TEXTURE: -1,
+                Field.GROUP_BOT: group_encoder.transform([None])[0],
+                Field.FORMATION_BOT: formation_encoder.transform([None])[0],
+                Field.MEMBER_BOT: member_encoder.transform([None])[0],
+            }
+
+            idx = 0
+
+            for _, layer in well.iterrows():
+
+                layer[Field.PREVIOUS_AGE] = sequential_data[Field.AGE]
+                layer[Field.PREVIOUS_TEXTURE] = sequential_data[Field.TEXTURE]
+                layer[Field.PREVIOUS_GROUP] = sequential_data[Field.GROUP_BOT]
+                layer[Field.PREVIOUS_FORMATION] = sequential_data[Field.FORMATION_BOT]
+
+                layer = layer.astype(float)
+                layer = layer.to_frame().T
+
+                label_dict = {}
+
+                age_X = layer[age_cols]
+
+                age = self.age_model.predict(age_X)
+                sequential_data[Field.AGE] = age
+
+                label_dict['age'] = age
+
+                if age_encoder.inverse_transform([age])[0] in ('Q', 'R'):
+                    texture_X = layer[texture_cols]
+
+                    texture = self.texture_model.predict(texture_X)
+                    sequential_data[Field.TEXTURE] = texture
+
+                    label_dict['texture'] = texture
+
+                    colors = ['BLACK', 'BROWN', 'BLUE', 'GREEN', 'ORANGE', 'PINK', 'PURPLE', 'RED', 'GRAY', 'WHITE',
+                              'YELLOW', 'VARIED']
+
+                    for color in colors:
+                        label_dict[color] = layer[color].values[0]
+
+                    if age_encoder.inverse_transform([age])[0] != old_codes[idx][0]:
+                        temp = pd.DataFrame({
+                            'relateid': [relate_id],
+                            'index': [idx],
+                            'true': [old_codes[idx]],
+                            'prediction': [utils.compile_geocode(label_dict)]
+                        })
+
+                        err_df = pd.concat([err_df, temp])
+                    elif texture_encoder.inverse_transform([texture])[0] != old_codes[idx][1]:
+                        if age_encoder.inverse_transform([age])[0] != old_codes[idx][0]:
+                            temp = pd.DataFrame({
+                                'relateid': [relate_id],
+                                'index': [idx],
+                                'true': [old_codes[idx]],
+                                'prediction': [utils.compile_geocode(label_dict)]
+                            })
+
+                            err_df = pd.concat([err_df, temp])
+
+                elif age_encoder.inverse_transform([age])[0] in ('F', 'B', 'U'):
+                    if utils.compile_geocode(label_dict) != old_codes[idx]:
+                        temp = pd.DataFrame({
+                            'relateid': [relate_id],
+                            'index': [idx],
+                            'true': [old_codes[idx]],
+                            'prediction': [utils.compile_geocode(label_dict)]
+                        })
+
+                        err_df = pd.concat([err_df, temp])
+                else:
+                    sequential_data[Field.TEXTURE] = -1
+
+                    age_code = age_encoder.inverse_transform([age])[0]
+                    if age_code in ('A', 'E', 'M', 'G'):
+                        age_code = 'P'
+
+                    if age_code != old_codes[idx][0]:
+                        temp = pd.DataFrame({
+                            'relateid': [relate_id],
+                            'index': [idx],
+                            'true': [old_codes[idx]],
+                            'prediction': [age_encoder.inverse_transform([age])[0]]
+                        })
+
+                        err_df = pd.concat([err_df, temp])
+
+                idx += 1
+
+            err_df.to_csv('database_comparison.csv')
+
     def test(self, relate_ids, unlabelled=False):
         warnings.filterwarnings('ignore')
 
-        if self.age_model is None:
+        if self.age_model is None or self.texture_model is None:
             self.age_model = joblib.load(f'{self.path}.age.mdl')
             self.age_model.set_params(device='cpu')
             self.texture_model = joblib.load(f'{self.path}.txt.mdl')
@@ -66,7 +220,7 @@ class GBTModel:
         else:
             df = Data.load('data.parquet')
 
-        df = df.sort_values([Field.DEPTH_TOP])
+        df = df.sort_values([Field.RELATEID, Field.DEPTH_TOP], ascending=[False, False])
         y = df[Field.STRAT]
         X = df.drop(columns=[Field.STRAT, Field.LITH_PRIM])
 
@@ -103,10 +257,8 @@ class GBTModel:
 
             well = X[mask].drop(columns=[Field.RELATEID])
 
-            """Remove this once all models are implemented"""
             old_codes = y[mask].values.tolist()
-            old_codes = [code for code in old_codes if str(code).startswith(('Q', 'R', 'B', 'F', 'U'))]
-
+            old_codes.reverse()
             old_wells[relate_id] = old_codes
 
             sequential_data = {
@@ -174,7 +326,11 @@ class GBTModel:
                 else:
                     sequential_data[Field.TEXTURE] = -1
 
-            if relate_id not in new_wells.keys():
+                    if relate_id not in new_wells.keys():
+                        new_wells[relate_id] = []
+                    new_wells[relate_id].append(age_encoder.inverse_transform([age])[0])
+
+            if relate_id in new_wells.keys():
                 new_wells[relate_id].reverse()
 
         return old_wells, new_wells, probs
@@ -305,8 +461,8 @@ class GBTModel:
         X_test = self.X_test
 
         """Remove noisy/unnecessary features"""
-        X_train = X_train.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER])
-        X_test = X_test.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER])
+        X_train = X_train.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION])
+        X_test = X_test.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION])
 
         drop_dict = {
             'Q': .25
@@ -405,12 +561,6 @@ class GBTModel:
         X_test = X_test[mask].reset_index(drop=True)
         y_test = y_test[mask].reset_index(drop=True)
 
-        """Drop noise/unnecessary features"""
-        X_train = X_train.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
-                                        Field.PREVIOUS_MEMBER])
-        X_test = X_test.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
-                                        Field.PREVIOUS_MEMBER])
-
         drop_dict = {
             'C': .33,
             'F': .33,
@@ -431,6 +581,15 @@ class GBTModel:
 
         X_train, y_train = utils.SMOTE_gbt(X_train, y_train, encoder.transform(['S'])[0], 8000, Field.TEXTURE)
         X_train, y_train = utils.SMOTE_gbt(X_train, y_train, encoder.transform(['I'])[0], 5000, Field.TEXTURE)
+
+        """Drop noisy/unnecessary features"""
+        X_train = X_train.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
+                                        Field.PREVIOUS_MEMBER, Field.UTME, Field.UTMN, Field.DEPTH_TOP, Field.DEPTH_BOT,
+                                        Field.ELEVATION_BOT, Field.ELEVATION_TOP] + Data.COLORS)
+        X_test = X_test.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
+                                        Field.PREVIOUS_MEMBER, Field.UTME, Field.UTMN, Field.DEPTH_TOP, Field.DEPTH_BOT,
+                                        Field.ELEVATION_BOT, Field.ELEVATION_TOP] + Data.COLORS)
+
 
         print('TRAINING MODEL')
 
@@ -470,6 +629,9 @@ class GBTModel:
         return report['macro avg']['f1-score'], report['accuracy']
 
     def train_group(self, n_estimators=100):
+        if self.X_train is None:
+            self.load_data()
+
         print('BALANCING DATA SET')
         encoder = Age.init_encoder()
 
@@ -492,9 +654,34 @@ class GBTModel:
         X_test = X_test[mask].reset_index(drop=True)
         y_test = y_test[mask].reset_index(drop=True)
 
+        """Split the testing data into its top and bottom components then recombine"""
+        X_train_top = (X_train.drop(columns=[Field.DEPTH_BOT, Field.ELEVATION_BOT])
+                       .rename(columns={Field.DEPTH_TOP : Field.DEPTH, Field.ELEVATION_TOP : Field.ELEVATION}))
+        X_train_bot = (X_train.drop(columns=[Field.DEPTH_TOP, Field.ELEVATION_TOP])
+                       .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
+        X_train = pd.concat([X_train_top, X_train_bot])
+
+        y_train_top = y_train[Field.GROUP_TOP].rename(Field.GROUP)
+        y_train_bot = y_train[Field.GROUP_BOT].rename(Field.GROUP)
+        y_train = pd.concat([y_train_top, y_train_bot])
+
+        X_test_top = (X_test.drop(columns=[Field.DEPTH_BOT, Field.ELEVATION_BOT])
+                      .rename(columns={Field.DEPTH_TOP : Field.DEPTH, Field.ELEVATION_TOP : Field.ELEVATION}))
+        X_test_bot = (X_test.drop(columns=[Field.DEPTH_TOP, Field.ELEVATION_TOP])
+                       .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
+        X_test = pd.concat([X_test_top, X_test_bot])
+
+        y_test_top = y_test[Field.GROUP_TOP].rename(Field.GROUP)
+        y_test_bot = y_test[Field.GROUP_BOT].rename(Field.GROUP)
+        y_test = pd.concat([y_test_top, y_test_bot])
+
+        """Drop noisy/unnecessary features"""
+        X_train = X_train.drop(columns=[Field.PREVIOUS_MEMBER, Field.PREVIOUS_TEXTURE])
+        X_test = X_test.drop(columns=[Field.PREVIOUS_MEMBER, Field.PREVIOUS_TEXTURE])
+
         print('TRAINING MODEL')
 
-        binary_model = xgboost.XGBClassifier(
+        model = xgboost.XGBClassifier(
             booster='dart',
             n_estimators=n_estimators,
             verbosity=1,
@@ -506,29 +693,28 @@ class GBTModel:
 
             tree_method='hist'
         )
-
-        model = OneVsRestClassifier(binary_model, verbose=1)
-        model.fit(X_train, y_train[[group.name for group in Bedrock.GROUP_LIST]])
+        model.fit(X_train, y_train)
 
         joblib.dump(model, f'{self.path}.grp.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.grp.fts')
         self.group_model = model
 
         print('EVALUATING CLASSIFIER')
 
         y_pred = self.group_model.predict(X_test)
 
-        print('Accuracy: ', accuracy_score(np.array(y_test[[group.name for group in Bedrock.GROUP_LIST]]), y_pred))
+        print('Accuracy: ', accuracy_score(y_test.tolist(), y_pred))
 
         report = classification_report(
-            np.array(y_test[[group.name for group in Bedrock.GROUP_LIST]]),
+            y_test.tolist(),
             y_pred,
             zero_division=0,
             output_dict=True
         )
 
-        print(classification_report(np.array(y_test[[group.name for group in Bedrock.GROUP_LIST]]), y_pred, zero_division=0))
+        print(classification_report(y_test.tolist(), y_pred, zero_division=0))
 
-        return report['macro avg']['f1-score'], accuracy_score(np.array(y_test[[group.name for group in Bedrock.GROUP_LIST]]), y_pred)
+        return report['macro avg']['f1-score'], accuracy_score(y_test.tolist(), y_pred)
 
     def train_formation(self, n_estimators=100):
         print('BALANCING DATA SET')
@@ -553,9 +739,34 @@ class GBTModel:
         X_test = X_test[mask].reset_index(drop=True)
         y_test = y_test[mask].reset_index(drop=True)
 
+        """Split the testing data into its top and bottom components then recombine"""
+        X_train_top = (X_train.drop(columns=[Field.DEPTH_BOT, Field.ELEVATION_BOT])
+                       .rename(columns={Field.DEPTH_TOP : Field.DEPTH, Field.ELEVATION_TOP : Field.ELEVATION}))
+        X_train_bot = (X_train.drop(columns=[Field.DEPTH_TOP, Field.ELEVATION_TOP])
+                       .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
+        X_train = pd.concat([X_train_top, X_train_bot])
+
+        y_train_top = y_train[Field.FORMATION_TOP].rename(Field.FORMATION)
+        y_train_bot = y_train[Field.FORMATION_BOT].rename(Field.FORMATION)
+        y_train = pd.concat([y_train_top, y_train_bot])
+
+        X_test_top = (X_test.drop(columns=[Field.DEPTH_BOT, Field.ELEVATION_BOT])
+                      .rename(columns={Field.DEPTH_TOP : Field.DEPTH, Field.ELEVATION_TOP : Field.ELEVATION}))
+        X_test_bot = (X_test.drop(columns=[Field.DEPTH_TOP, Field.ELEVATION_TOP])
+                       .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
+        X_test = pd.concat([X_test_top, X_test_bot])
+
+        y_test_top = y_test[Field.FORMATION_TOP].rename(Field.FORMATION)
+        y_test_bot = y_test[Field.FORMATION_BOT].rename(Field.FORMATION)
+        y_test = pd.concat([y_test_top, y_test_bot])
+
+        """Drop noisy/unnecessary features"""
+        X_train = X_train.drop(columns=[Field.PREVIOUS_MEMBER])
+        X_test = X_test.drop(columns=[Field.PREVIOUS_MEMBER])
+
         print('TRAINING MODEL')
 
-        binary_model = xgboost.XGBClassifier(
+        model = xgboost.XGBClassifier(
             booster='dart',
             n_estimators=n_estimators,
             verbosity=1,
@@ -567,26 +778,110 @@ class GBTModel:
 
             tree_method='hist'
         )
-
-        model = OneVsRestClassifier(binary_model, verbose=1)
-        model.fit(X_train, y_train[[form.name for form in Bedrock.FORMATION_LIST]])
+        model.fit(X_train, y_train)
 
         joblib.dump(model, f'{self.path}.frm.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.frm.fts')
         self.group_model = model
 
         print('EVALUATING CLASSIFIER')
 
         y_pred = self.group_model.predict(X_test)
 
-        print('Accuracy: ', accuracy_score(np.array(y_test[[form.name for form in Bedrock.FORMATION_LIST]]), y_pred))
+        print('Accuracy: ', accuracy_score(y_test.tolist(), y_pred))
 
         report = classification_report(
-            np.array(y_test[[form.name for form in Bedrock.FORMATION_LIST]]),
+            y_test.tolist(),
             y_pred,
             zero_division=0,
             output_dict=True
         )
 
-        print(classification_report(np.array(y_test[[form.name for form in Bedrock.FORMATION_LIST]]), y_pred, zero_division=0))
+        print(classification_report(y_test.tolist(), y_pred, zero_division=0))
 
-        return report['macro avg']['f1-score'], accuracy_score(np.array(y_test[[form.name for form in Bedrock.FORMATION_LIST]]), y_pred)
+        return report['macro avg']['f1-score'], accuracy_score(y_test.tolist(), y_pred)
+
+    def train_member(self, n_estimators=100):
+        print('BALANCING DATA SET')
+        encoder = Age.init_encoder()
+
+        X_train = self.X_train.copy()
+        y_train = self.y_train.copy()
+
+        """Only want Bedrock values for training"""
+        mask = y_train[Field.AGE].isin(encoder.transform(['C', 'D', 'K', 'O', 'G']))
+
+        X_train = X_train[mask].reset_index(drop=True)
+        y_train = y_train[mask].reset_index(drop=True)
+
+        """Test data filtering"""
+
+        X_test = self.X_test.copy()
+        y_test = self.y_test.copy()
+
+        mask = y_test[Field.AGE].isin(encoder.transform(['C', 'D', 'K', 'O', 'G']))
+
+        X_test = X_test[mask].reset_index(drop=True)
+        y_test = y_test[mask].reset_index(drop=True)
+
+        """Split the testing data into its top and bottom components then recombine"""
+        X_train_top = (X_train.drop(columns=[Field.DEPTH_BOT, Field.ELEVATION_BOT])
+                       .rename(columns={Field.DEPTH_TOP : Field.DEPTH, Field.ELEVATION_TOP : Field.ELEVATION}))
+        X_train_bot = (X_train.drop(columns=[Field.DEPTH_TOP, Field.ELEVATION_TOP])
+                       .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
+        X_train = pd.concat([X_train_top, X_train_bot])
+
+        y_train_top = y_train[Field.MEMBER_TOP].rename(columns={Field.MEMBER_TOP : Field.MEMBER})
+        y_train_bot = y_train[Field.MEMBER_BOT].rename(columns={Field.MEMBER_BOT : Field.MEMBER})
+        y_train = pd.concat([y_train_top, y_train_bot])
+
+        X_test_top = (X_test.drop(columns=[Field.DEPTH_BOT, Field.ELEVATION_BOT])
+                      .rename(columns={Field.DEPTH_TOP : Field.DEPTH, Field.ELEVATION_TOP : Field.ELEVATION}))
+        X_test_bot = (X_test.drop(columns=[Field.DEPTH_TOP, Field.ELEVATION_TOP])
+                       .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
+        X_test = pd.concat([X_test_top, X_test_bot])
+
+        y_test_top = y_test[Field.MEMBER_TOP].rename(columns={Field.MEMBER_TOP : Field.MEMBER})
+        y_test_bot = y_test[Field.MEMBER_BOT].rename(columns={Field.MEMBER_BOT : Field.MEMBER})
+        y_test = pd.concat([y_test_top, y_test_bot])
+
+        """Drop noisy/unnecessary features"""
+        X_train = X_train.drop(columns=[Field.PREVIOUS_MEMBER])
+        X_test = X_test.drop(columns=[Field.PREVIOUS_MEMBER])
+
+        print('TRAINING MODEL')
+
+        model = xgboost.XGBClassifier(
+            booster='dart',
+            n_estimators=n_estimators,
+            verbosity=1,
+            device='cuda',
+
+            rate_drop=.1,
+            normalize_type='forest',
+            sample_type='weighted',
+
+            tree_method='hist'
+        )
+        model.fit(X_train, y_train)
+
+        joblib.dump(model, f'{self.path}.frm.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.frm.fts')
+        self.group_model = model
+
+        print('EVALUATING CLASSIFIER')
+
+        y_pred = self.group_model.predict(X_test)
+
+        print('Accuracy: ', accuracy_score(y_test[Field.FORMATION].tolist(), y_pred))
+
+        report = classification_report(
+            y_test[Field.FORMATION].tolist(),
+            y_pred,
+            zero_division=0,
+            output_dict=True
+        )
+
+        print(classification_report(y_test[Field.FORMATION].tolist(), y_pred, zero_division=0))
+
+        return report['macro avg']['f1-score'], accuracy_score(y_test[Field.FORMATION].tolist(), y_pred)

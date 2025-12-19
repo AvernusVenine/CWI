@@ -161,7 +161,7 @@ def compile_geocode(label_dict):
 
     """Simple one to one conversions of basic geocodes"""
     if age == 'F':
-        return 'RMMF'
+        return 'FILL' #TODO: Change this back to RMMF at some point
     if age == 'X':
         return 'PITT'
     if age == 'Y':
