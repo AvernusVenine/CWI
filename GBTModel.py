@@ -5,6 +5,7 @@ from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import pandas as pd
+import warnings
 
 import Bedrock
 import Precambrian
@@ -45,7 +46,9 @@ class GBTModel:
 
         self.X_train = None
 
-    def test(self, relate_id, unlabelled=False):
+    def test(self, relate_ids, unlabelled=False):
+        warnings.filterwarnings('ignore')
+
         if self.age_model is None:
             self.age_model = joblib.load(f'{self.path}.age.mdl')
             self.age_model.set_params(device='cpu')
@@ -63,9 +66,9 @@ class GBTModel:
         else:
             df = Data.load('data.parquet')
 
-        X = df[df[Field.RELATEID] == relate_id]
-        X = X.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM])
-        X = X.sort_values([Field.DEPTH_TOP])
+        df = df.sort_values([Field.DEPTH_TOP])
+        y = df[Field.STRAT]
+        X = df.drop(columns=[Field.STRAT, Field.LITH_PRIM])
 
         X[Field.ELEVATION_TOP] = X[Field.ELEVATION] - X[Field.DEPTH_TOP]
         X[Field.ELEVATION_BOT] = X[Field.ELEVATION] - X[Field.DEPTH_BOT]
@@ -88,58 +91,93 @@ class GBTModel:
         texture_encoder = Texture.init_encoder()
         group_encoder, formation_encoder, member_encoder = Bedrock.init_encoders()
 
-        sequential_data = {
-            Field.AGE : -1,
-            Field.TEXTURE : -1,
-            Field.GROUP_BOT : group_encoder.transform([None])[0],
-            Field.FORMATION_BOT : formation_encoder.transform([None])[0],
-            Field.MEMBER_BOT : member_encoder.transform([None])[0],
-        }
-
         age_cols = joblib.load(f'{self.path}.age.fts')
         texture_cols = joblib.load(f'{self.path}.txt.fts')
 
-        codes = []
+        old_wells = {}
+        new_wells = {}
+        probs = {}
 
-        for _, layer in X.iterrows():
-            layer[Field.PREVIOUS_AGE] = sequential_data[Field.AGE]
-            layer[Field.PREVIOUS_TEXTURE] = sequential_data[Field.TEXTURE]
-            layer[Field.PREVIOUS_GROUP] = sequential_data[Field.GROUP_BOT]
-            layer[Field.PREVIOUS_FORMATION] = sequential_data[Field.FORMATION_BOT]
+        for relate_id in relate_ids:
+            mask = X[Field.RELATEID] == relate_id
 
-            layer = layer.astype(float)
-            layer = layer.to_frame().T
+            well = X[mask].drop(columns=[Field.RELATEID])
 
-            label_dict = {}
+            """Remove this once all models are implemented"""
+            old_codes = y[mask].values.tolist()
+            old_codes = [code for code in old_codes if str(code).startswith(('Q', 'R', 'B', 'F', 'U'))]
 
-            age_X = layer[age_cols]
+            old_wells[relate_id] = old_codes
 
-            age = self.age_model.predict(age_X)
-            sequential_data[Field.AGE] = age
+            sequential_data = {
+                Field.AGE: -1,
+                Field.TEXTURE: -1,
+                Field.GROUP_BOT: group_encoder.transform([None])[0],
+                Field.FORMATION_BOT: formation_encoder.transform([None])[0],
+                Field.MEMBER_BOT: member_encoder.transform([None])[0],
+            }
 
-            label_dict['age'] = age
+            for _, layer in well.iterrows():
+                layer[Field.PREVIOUS_AGE] = sequential_data[Field.AGE]
+                layer[Field.PREVIOUS_TEXTURE] = sequential_data[Field.TEXTURE]
+                layer[Field.PREVIOUS_GROUP] = sequential_data[Field.GROUP_BOT]
+                layer[Field.PREVIOUS_FORMATION] = sequential_data[Field.FORMATION_BOT]
 
-            if age_encoder.inverse_transform([age])[0] in ('Q', 'R'):
-                texture_X = layer[texture_cols]
+                layer = layer.astype(float)
+                layer = layer.to_frame().T
 
-                texture = self.texture_model.predict(texture_X)
-                sequential_data[Field.TEXTURE] = texture
+                label_dict = {}
 
-                label_dict['texture'] = texture
+                age_X = layer[age_cols]
 
-                colors = ['BLACK', 'BROWN', 'BLUE', 'GREEN', 'ORANGE', 'PINK', 'PURPLE', 'RED', 'GRAY', 'WHITE',
-                          'YELLOW', 'VARIED']
+                age = self.age_model.predict(age_X)
+                sequential_data[Field.AGE] = age
 
-                for color in colors:
-                    label_dict[color] = layer[color].values[0]
+                label_dict['age'] = age
 
-                codes.append(utils.compile_geocode(label_dict))
-            else:
-                sequential_data[Field.TEXTURE] = -1
-                codes.append((age_encoder.inverse_transform([age])[0]))
+                age_prob = self.age_model.predict_proba(age_X)[0]
+                top3_idx = np.argsort(age_prob)[-3:][::-1]
+                top3_probs = age_prob[top3_idx]
+                top3_classes = age_encoder.inverse_transform(self.age_model.classes_[top3_idx])
 
+                age_prob = list(zip(top3_classes, top3_probs))
+                age_prob.reverse()
 
-        return codes
+                if relate_id not in probs.keys():
+                    probs[relate_id] = []
+
+                probs[relate_id].append(age_prob)
+
+                if age_encoder.inverse_transform([age])[0] in ('Q', 'R'):
+                    texture_X = layer[texture_cols]
+
+                    texture = self.texture_model.predict(texture_X)
+                    sequential_data[Field.TEXTURE] = texture
+
+                    label_dict['texture'] = texture
+
+                    colors = ['BLACK', 'BROWN', 'BLUE', 'GREEN', 'ORANGE', 'PINK', 'PURPLE', 'RED', 'GRAY', 'WHITE',
+                              'YELLOW', 'VARIED']
+
+                    for color in colors:
+                        label_dict[color] = layer[color].values[0]
+
+                    if relate_id not in new_wells.keys():
+                        new_wells[relate_id] = []
+
+                    new_wells[relate_id].append(utils.compile_geocode(label_dict))
+                elif age_encoder.inverse_transform([age])[0] in ('F', 'B', 'U'):
+                    if relate_id not in new_wells.keys():
+                        new_wells[relate_id] = []
+
+                    new_wells[relate_id].append(utils.compile_geocode(label_dict))
+                else:
+                    sequential_data[Field.TEXTURE] = -1
+
+            if relate_id not in new_wells.keys():
+                new_wells[relate_id].reverse()
+
+        return old_wells, new_wells, probs
 
     def load_data(self):
         """
@@ -180,11 +218,13 @@ class GBTModel:
         y[Field.TEXTURE] = y[Field.TEXTURE].replace(-100, -1)
 
         """Get the info of previous layer for sequential information"""
+        group_encoder, formation_encoder, member_encoder = Bedrock.init_encoders()
+
         X[Field.PREVIOUS_AGE] = y.groupby(df[Field.RELATEID])[Field.AGE].shift(-1).fillna(-1)
         X[Field.PREVIOUS_TEXTURE] = y.groupby(df[Field.RELATEID])[Field.TEXTURE].shift(-1).fillna(-1)
-        X[Field.PREVIOUS_GROUP] = y.groupby(df[Field.RELATEID])[Field.GROUP_BOT].shift(-1).fillna(-1)
-        X[Field.PREVIOUS_FORMATION] = y.groupby(df[Field.RELATEID])[Field.FORMATION_BOT].shift(-1).fillna(-1)
-        X[Field.PREVIOUS_MEMBER] = y.groupby(df[Field.RELATEID])[Field.MEMBER_BOT].shift(-1).fillna(-1)
+        X[Field.PREVIOUS_GROUP] = y.groupby(df[Field.RELATEID])[Field.GROUP_BOT].shift(-1).fillna(group_encoder.transform([None])[0])
+        X[Field.PREVIOUS_FORMATION] = y.groupby(df[Field.RELATEID])[Field.FORMATION_BOT].shift(-1).fillna(formation_encoder.transform([None])[0])
+        X[Field.PREVIOUS_MEMBER] = y.groupby(df[Field.RELATEID])[Field.MEMBER_BOT].shift(-1).fillna(member_encoder.transform([None])[0])
 
         mask = y[Field.AGE] != -1
         X = X[mask].reset_index(drop=True)
