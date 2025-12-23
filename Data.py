@@ -47,9 +47,13 @@ class Field:
     MEMBER_TOP = 'member_top'
     MEMBER_BOT = 'member_bot'
     PREVIOUS_MEMBER = 'prev_member'
+    INTERPRETATION_METHOD = 'strat_mc'
 
 def load_raw():
     return pd.read_csv(f'{config.RAW_DATA_PATH}/c5st.csv', low_memory=False, on_bad_lines='skip')
+
+def load_well_raw():
+    return pd.read_csv(f'{config.RAW_DATA_PATH}/cwi5.csv', low_memory=False, on_bad_lines='skip')
 
 def load(path):
     """
@@ -98,6 +102,7 @@ def load_and_embed(subset=None):
     layers_df[Field.ELEVATION] = layers_df[Field.RELATEID].map(wells_df.set_index(Field.RELATEID)[Field.ELEVATION])
     layers_df[Field.UTME] = layers_df[Field.RELATEID].map(wells_df.set_index(Field.RELATEID)[Field.UTME])
     layers_df[Field.UTMN] = layers_df[Field.RELATEID].map(wells_df.set_index(Field.RELATEID)[Field.UTMN])
+    layers_df[Field.INTERPRETATION_METHOD] = layers_df[Field.RELATEID].map(wells_df.set_index(Field.RELATEID)[Field.INTERPRETATION_METHOD])
 
     """Embed descriptions"""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

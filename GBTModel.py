@@ -12,9 +12,7 @@ import Precambrian
 import Age
 import Texture
 import xgboost
-from sklearn.multiclass import OneVsRestClassifier
-import os
-
+from SyntheticData import create_shallow, create_bedrock
 import Data
 from Data import Field
 import utils
@@ -342,8 +340,9 @@ class GBTModel:
         """
         print("LOADING DATA SET")
 
-        df = Data.load('data.parquet')
+        df = Data.load('weighted.parquet')
         df = df.sort_values([Field.RELATEID, Field.DEPTH_TOP])
+        df = df[df[Field.STRAT] != 'BSMT'] #TODO: Fully drop this label at some point
         self.df = df
 
         y = df[[Field.STRAT, Field.LITH_PRIM]]
@@ -357,6 +356,8 @@ class GBTModel:
 
         X = utils.encode_hardness(X)
         X = utils.encode_color(X)
+
+        X = utils.encode_weights(X)
 
         X[Field.UTME] = X[Field.UTME].fillna(X[Field.UTME].min() * .9)
         X[Field.UTMN] = X[Field.UTMN].fillna(X[Field.UTMN].min() * .9)
@@ -483,9 +484,15 @@ class GBTModel:
 
         encoder = Age.init_encoder()
 
-        X_train, y_train = utils.SMOTE_gbt(X_train, y_train, encoder.transform(['B'])[0], 4000, Field.AGE)
-        X_train, y_train = utils.SMOTE_gbt(X_train, y_train, encoder.transform(['X'])[0], 4000, Field.AGE)
-        X_train, y_train = utils.SMOTE_gbt(X_train, y_train, encoder.transform(['Y'])[0], 4000, Field.AGE)
+        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['X'])[0], 4000, Field.AGE)
+        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['Y'])[0], 4000, Field.AGE)
+
+        print("APPLYING WEIGHTS")
+
+        weights = X_train[Field.INTERPRETATION_METHOD].values.tolist()
+
+        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
+        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
 
         print('TRAINING MODEL')
 
@@ -501,7 +508,7 @@ class GBTModel:
 
             tree_method='hist'
         )
-        model.fit(X_train, y_train[Field.AGE])
+        model.fit(X_train, y_train[Field.AGE], sample_weight=weights)
 
         joblib.dump(model, f'{self.path}.age.mdl')
         joblib.dump(X_train.columns.tolist(), f'{self.path}.age.fts')
@@ -520,6 +527,8 @@ class GBTModel:
             zero_division=0,
             output_dict=True
         )
+
+        self.y_pred = y_pred
 
         return report['macro avg']['f1-score'], report['accuracy']
 
@@ -579,8 +588,8 @@ class GBTModel:
             X_train = X_train[mask].reset_index(drop=True)
             y_train = y_train[mask].reset_index(drop=True)
 
-        X_train, y_train = utils.SMOTE_gbt(X_train, y_train, encoder.transform(['S'])[0], 8000, Field.TEXTURE)
-        X_train, y_train = utils.SMOTE_gbt(X_train, y_train, encoder.transform(['I'])[0], 5000, Field.TEXTURE)
+        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['S'])[0], 8000, Field.TEXTURE)
+        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['I'])[0], 5000, Field.TEXTURE)
 
         """Drop noisy/unnecessary features"""
         X_train = X_train.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
@@ -628,7 +637,7 @@ class GBTModel:
 
         return report['macro avg']['f1-score'], report['accuracy']
 
-    def train_group(self, n_estimators=100):
+    def train_group(self, n_estimators=100, depth=4, max_delta=0, eta=.001, early_stopping=0):
         if self.X_train is None:
             self.load_data()
 
@@ -661,8 +670,8 @@ class GBTModel:
                        .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
         X_train = pd.concat([X_train_top, X_train_bot])
 
-        y_train_top = y_train[Field.GROUP_TOP].rename(Field.GROUP)
-        y_train_bot = y_train[Field.GROUP_BOT].rename(Field.GROUP)
+        y_train_top = y_train[[Field.GROUP_TOP]].rename(columns={Field.GROUP_TOP: Field.GROUP})
+        y_train_bot = y_train[[Field.GROUP_BOT]].rename(columns={Field.GROUP_BOT: Field.GROUP})
         y_train = pd.concat([y_train_top, y_train_bot])
 
         X_test_top = (X_test.drop(columns=[Field.DEPTH_BOT, Field.ELEVATION_BOT])
@@ -671,19 +680,55 @@ class GBTModel:
                        .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
         X_test = pd.concat([X_test_top, X_test_bot])
 
-        y_test_top = y_test[Field.GROUP_TOP].rename(Field.GROUP)
-        y_test_bot = y_test[Field.GROUP_BOT].rename(Field.GROUP)
+        y_test_top = y_test[[Field.GROUP_TOP]].rename(columns={Field.GROUP_TOP: Field.GROUP})
+        y_test_bot = y_test[[Field.GROUP_BOT]].rename(columns={Field.GROUP_BOT: Field.GROUP})
         y_test = pd.concat([y_test_top, y_test_bot])
 
         """Drop noisy/unnecessary features"""
         X_train = X_train.drop(columns=[Field.PREVIOUS_MEMBER, Field.PREVIOUS_TEXTURE])
         X_test = X_test.drop(columns=[Field.PREVIOUS_MEMBER, Field.PREVIOUS_TEXTURE])
 
+        drop_dict = {
+            7: .33,
+        }
+
+        encoder, _, _ = Bedrock.init_encoders()
+
+        for group, percentage in drop_dict.items():
+            mask = y_train[Field.GROUP] == group
+            indices = y_train[mask].index
+
+            np.random.seed(self.random_state)
+            kept_indices = np.random.choice(indices, size=int(len(indices) * percentage))
+
+            mask = ~mask | y_train.index.isin(kept_indices)
+
+            X_train = X_train[mask].reset_index(drop=True)
+            y_train = y_train[mask].reset_index(drop=True)
+
+        #X_train, y_train = create_bedrock(X_train, y_train, 0, 2000, Field.GROUP)
+        #X_train, y_train = create_bedrock(X_train, y_train, 2, 2000, Field.GROUP)
+        #X_train, y_train = create_bedrock(X_train, y_train, 5, 2000, Field.GROUP)
+        #X_train, y_train = create_bedrock(X_train, y_train, 6, 2000, Field.GROUP)
+
+        #mask = y_train[Field.GROUP] == 0
+        #X_train.loc[mask, Field.INTERPRETATION_METHOD] = X_train.loc[mask, Field.INTERPRETATION_METHOD] * 5
+
+        weights = X_train[Field.INTERPRETATION_METHOD].values.tolist()
+
+        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
+        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
+
         print('TRAINING MODEL')
 
         model = xgboost.XGBClassifier(
+            objective='multi:softmax',
             booster='dart',
             n_estimators=n_estimators,
+            max_depth=depth,
+            max_delta_step=max_delta,
+            eta=eta,
+            early_stopping_rounds=early_stopping,
             verbosity=1,
             device='cuda',
 
@@ -693,7 +738,7 @@ class GBTModel:
 
             tree_method='hist'
         )
-        model.fit(X_train, y_train)
+        model.fit(X_train, y_train[Field.GROUP], sample_weight=weights, eval_set=[(X_test, y_test[Field.GROUP])])
 
         joblib.dump(model, f'{self.path}.grp.mdl')
         joblib.dump(X_train.columns.tolist(), f'{self.path}.grp.fts')
@@ -703,18 +748,18 @@ class GBTModel:
 
         y_pred = self.group_model.predict(X_test)
 
-        print('Accuracy: ', accuracy_score(y_test.tolist(), y_pred))
+        print('Accuracy: ', accuracy_score(y_test[Field.GROUP].values.tolist(), y_pred))
 
         report = classification_report(
-            y_test.tolist(),
+            y_test[Field.GROUP].values.tolist(),
             y_pred,
             zero_division=0,
             output_dict=True
         )
 
-        print(classification_report(y_test.tolist(), y_pred, zero_division=0))
+        print(classification_report(y_test[Field.GROUP].values.tolist(), y_pred, zero_division=0))
 
-        return report['macro avg']['f1-score'], accuracy_score(y_test.tolist(), y_pred)
+        return report['macro avg']['f1-score'], accuracy_score(y_test[Field.GROUP].values.tolist(), y_pred)
 
     def train_formation(self, n_estimators=100):
         print('BALANCING DATA SET')

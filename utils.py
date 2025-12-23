@@ -16,6 +16,32 @@ from Precambrian import PrecambrianCode
 from Data import Field
 import Age
 
+def encode_weights(df):
+
+    weight_map = {
+        'A': .75,
+        'B': 2,
+        'C': 2,
+        'D': .75,
+        'E': 2,
+        'F': 2,
+        'G': 2,
+        'H': 2,
+        'N': .5,
+        'O': .5,
+        'P': 1.25,
+        'Q': 1,
+        'R': .75,
+        'U': .5,
+        'X': 1,
+        'Z': 1,
+        np.nan: 1,
+    }
+
+    df[Field.INTERPRETATION_METHOD] = df[Field.INTERPRETATION_METHOD].replace(weight_map)
+
+    return df
+
 def reduce_majority(X, y, percentage_dict):
     """
     Attempts to balance the hole dataset by removing labels from majority age classes (effectively masking them)
@@ -36,118 +62,6 @@ def reduce_majority(X, y, percentage_dict):
             if age in percentage_dict.keys():
                 if random.random() > percentage_dict[age]:
                     y[idx][jdx][0] = -100
-
-    return X, y
-
-def SMOTE_gbt(X, y, value, count, col):
-    mask = y[col] == value
-    indices = np.where(mask)[0]
-
-    X_new = []
-    y_new = []
-
-    for _ in range(count):
-        idx_one = np.random.choice(indices)
-        idx_two = np.random.choice(indices)
-
-        new_row = X.iloc[idx_one].copy()
-
-        """Create a hyperplane between the two datapoints and randomly select a value on it"""
-
-        new_row[Field.UTME] = random.uniform(min(X.iloc[idx_one][Field.UTME], X.iloc[idx_two][Field.UTME]),
-                                             max(X.iloc[idx_one][Field.UTME], X.iloc[idx_two][Field.UTME]))
-        new_row[Field.UTMN] = random.uniform(min(X.iloc[idx_one][Field.UTMN], X.iloc[idx_two][Field.UTMN]),
-                                             max(X.iloc[idx_one][Field.UTMN], X.iloc[idx_two][Field.UTMN]))
-        new_row[Field.ELEVATION_BOT] = random.uniform(min(X.iloc[idx_one][Field.ELEVATION_BOT], X.iloc[idx_two][Field.ELEVATION_BOT]),
-                                                  max(X.iloc[idx_one][Field.ELEVATION_BOT], X.iloc[idx_two][Field.ELEVATION_BOT]))
-        new_row[Field.ELEVATION_TOP] = random.uniform(min(X.iloc[idx_one][Field.ELEVATION_TOP], X.iloc[idx_two][Field.ELEVATION_TOP]),
-                                                  max(X.iloc[idx_one][Field.ELEVATION_TOP], X.iloc[idx_two][Field.ELEVATION_TOP]))
-        new_row[Field.DEPTH_BOT] = random.uniform(min(X.iloc[idx_one][Field.DEPTH_BOT], X.iloc[idx_two][Field.DEPTH_BOT]),
-                                                  max(X.iloc[idx_one][Field.DEPTH_BOT], X.iloc[idx_two][Field.DEPTH_BOT]))
-        new_row[Field.DEPTH_TOP] = random.uniform(min(X.iloc[idx_one][Field.DEPTH_TOP], X.iloc[idx_two][Field.DEPTH_TOP]),
-                                                  max(X.iloc[idx_one][Field.DEPTH_TOP], X.iloc[idx_two][Field.DEPTH_TOP]))
-
-        X_new.append(new_row)
-        y_new.append(y.iloc[idx_two])
-
-    X_new = pd.DataFrame(X_new)
-    y_new = pd.DataFrame(y_new)
-
-    return pd.concat([X, X_new], ignore_index=True), pd.concat([y, y_new], ignore_index=True)
-
-def SMOTE_shallow(X, y, top_col, bot_col, elev_col, utme_col, utmn_col, value_dict):
-    """
-    Used to create synthetic data points for the ages 'BSMT', 'PITT', and 'PVMT'
-    :param X: Holes numpy array
-    :param y: Labels array
-    :param top_col: Depth top column index
-    :param bot_col: Depth bot column index
-    :param elev_col: Elevation column index
-    :param utme_col: UTME column index
-    :param utmn_col: UTMN column index
-    :param value_dict: Dictionary of ages and values desired
-    :return: Balanced holes numpy array and labels
-    """
-
-    encoder = Age.init_encoder()
-
-    value_dict = {encoder.transform([k])[0] : v for k, v in value_dict.items()}
-
-    layer_dict = {k : [] for k, _ in value_dict.items()}
-
-    depth_dict = {k : [] for k, _ in value_dict.items()}
-    elev_dict = {k : [] for k, _ in value_dict.items()}
-    utme_dict = {k : [] for k, _ in value_dict.items()}
-    utmn_dict = {k : [] for k, _ in value_dict.items()}
-
-    label_dict = {k : [] for k, _ in value_dict.items()}
-
-    for idx, hole in enumerate(X):
-        for jdx, layer in enumerate(hole):
-            age = y[idx][jdx][0]
-
-            if age in value_dict.keys():
-                layer_dict[age].append(layer)
-
-                depth_dict[age].append(layer[bot_col])
-                elev_dict[age].append(layer[elev_col])
-                utme_dict[age].append(layer[utme_col])
-                utmn_dict[age].append(layer[utmn_col])
-
-                label_dict[age].append(y[idx][jdx])
-
-    for age, max_count in value_dict.items():
-        depth_mean = np.mean(depth_dict[age])
-        depth_std = np.std(depth_dict[age])
-
-        elev_min = np.min(elev_dict[age])
-        elev_max = np.max(elev_dict[age])
-
-        utme_min = np.min(utme_dict[age])
-        utme_max = np.max(utme_dict[age])
-
-        utmn_min = np.min(utmn_dict[age])
-        utmn_max = np.max(utmn_dict[age])
-
-        arr = np.array([random.choice(layer_dict[age]) for _ in range(max_count)])
-
-        arr[:, top_col] = np.min(arr[:, top_col])
-
-        depths = np.random.normal(depth_mean, depth_std, max_count)
-        arr[:, bot_col] = depths
-
-        elevations = np.random.uniform(elev_min, elev_max, max_count)
-        arr[:, elev_col] = elevations
-
-        utme = np.random.uniform(utme_min, utme_max, max_count)
-        arr[:, utme_col] = utme
-
-        utmn = np.random.uniform(utmn_min, utmn_max, max_count)
-        arr[:, utmn_col] = utmn
-
-        for layer in arr:
-            X.append(np.array([layer]))
-            y.append(np.array([random.choice(label_dict[age])]))
 
     return X, y
 
