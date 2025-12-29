@@ -80,6 +80,15 @@ class Bedrock:
 
         return lineage
 
+class Primary(Bedrock):
+    pass
+
+class Secondary(Bedrock):
+    pass
+
+class Tertiary(Bedrock):
+    pass
+
 class Age(Bedrock):
     pass
 
@@ -95,13 +104,27 @@ class Member(Bedrock):
 
 class GeoCode:
 
-    def __init__(self, bedrocks):
-        if not isinstance(bedrocks, list):
-            self.top = bedrocks
-            self.bot = bedrocks
+    def __init__(self, primary=None, secondary=None, tertiary=None):
+        if isinstance(primary, list):
+            self.primary_top = primary[0]
+            self.primary_bot = primary[1]
         else:
-            self.top = bedrocks[0]
-            self.bot = bedrocks[1]
+            self.primary_top = primary
+            self.primary_bot = primary
+
+        if isinstance(secondary, list):
+            self.secondary_top = secondary[0]
+            self.primary_bot = secondary[1]
+        else:
+            self.secondary_top = secondary
+            self.secondary_bot = secondary
+
+        if isinstance(tertiary, list):
+            self.tertiary_top = tertiary[0]
+            self.tertiary_bot = tertiary[1]
+        else:
+            self.tertiary_top = tertiary
+            self.tertiary_bot = tertiary
 
 
     def __eq__(self, other):
@@ -162,6 +185,180 @@ class GeoCode:
 
         return None
 
+"""BEDROCK PRIMARY"""
+Cretaceous_Regolith = Primary('Cretaceous Regolith')
+Carlile_Shale = Primary('Carlile Shale')
+Dakota = Primary('Dakota')
+Split_Rock = Primary('Split Rock')
+Windrow = Primary('Windrow')
+Upper_Cedar = Primary('Upper Cedar Valley')
+Cedar_Valley = Primary('Cedar Valley')
+Lower_Cedar = Primary('Lower Cedar Valley')
+Wapsipinicon = Primary('Wapsipinicon')
+Maquoketa = Primary('Maquoketa')
+Galena = Primary('Galena')
+Decorah_Shale = Primary('Decorah Shale')
+Platteville = Primary('Platteville')
+Glenwood = Primary('Glenwood')
+St_Peter = Primary('St Peter')
+Prairie_Du_Chien = Primary('Prairie Du Chien')
+Jordan = Primary('Jordan')
+St_Lawrence = Primary('St Lawrence')
+Tunnel_City = Primary('Tunnel City')
+Wonewoc = Primary('Wonewoc')
+Eau_Claire = Primary('Eau Claire')
+Mt_Simon = Primary('Mt Simon')
+Hinckley = Primary('Hinckley')
+Fond_Du_Lac = Primary('Fond Du Lac')
+Solor_Church = Primary('Solor Church')
+
+"""BEDROCK SECONDARY"""
+Lithograph_City = Secondary('Lithograph City')
+Coralville = Secondary('Coralville')
+Little_Cedar = Secondary('Little Cedar')
+Pinicon_Ridge = Secondary('Pinicon Ridge')
+Spillville = Secondary('Spillville')
+Dubuque = Secondary('Dubuque')
+Stewartville = Secondary('Stewartville')
+Prosser = Secondary('Prosser')
+Cummingsville = Secondary('Cummingsville')
+Shakopee = Secondary('Shakopee')
+Oneota = Secondary('Oneota')
+Lone_Rock = Secondary('Lone Rock')
+Mazomanie = Secondary('Mazomanie')
+
+"""BEDROCK TERTIARY"""
+Willow_River = Tertiary('Willow River')
+New_Richmond = Tertiary('New Richmond')
+
+"""CODE MAPPINGS"""
+BEDROCK_CODE_MAP = {
+    'KCBH' : GeoCode(),
+    'KCCD' : GeoCode(Carlile_Shale),
+    'KCFP' : GeoCode(Carlile_Shale),
+    'KCRL' : GeoCode(Carlile_Shale),
+    'KDKT' : GeoCode(Dakota),
+    'KDNB' : GeoCode(Dakota),
+    'KDWB' : GeoCode(Dakota),
+    'KREG' : GeoCode(Cretaceous_Regolith),
+    'KSRC' : GeoCode(Split_Rock),
+    'KWIH' : GeoCode(Windrow),
+    'KWND' : GeoCode(Windrow),
+    'KWOS' : GeoCode(Windrow),
+
+    'DCVU' : GeoCode(Upper_Cedar),
+    'DLGH' : GeoCode(Upper_Cedar, Lithograph_City),
+    'DCRL' : GeoCode(Cedar_Valley, Coralville),
+    'DCUM' : GeoCode([Cedar_Valley, Lower_Cedar], [Coralville, Little_Cedar]),
+    'DCGZ' : GeoCode(Cedar_Valley, Coralville),
+    'DCIC' : GeoCode(Cedar_Valley, Coralville),
+    'DCLC' : GeoCode([Cedar_Valley, Lower_Cedar], [Coralville, Little_Cedar]),
+    'DCVA' : GeoCode(Cedar_Valley),
+    'DLBA' : GeoCode(Lower_Cedar, Little_Cedar),
+    'DLCB' : GeoCode(Lower_Cedar, Little_Cedar),
+    'DLCD' : GeoCode(Lower_Cedar, Little_Cedar),
+    'DLCH' : GeoCode(Lower_Cedar, Little_Cedar),
+    'DLHE' : GeoCode(Lower_Cedar, Little_Cedar),
+    'DCLP' : GeoCode([Lower_Cedar, Wapsipinicon], [Little_Cedar, Pinicon_Ridge]),
+    'DCLS' : GeoCode([Lower_Cedar, Wapsipinicon], [Little_Cedar, Spillville]),
+    'DCOG' : GeoCode([Cedar_Valley, Galena]),
+    'DCOM' : GeoCode([Cedar_Valley, Maquoketa]),
+    'DCVL' : GeoCode(Lower_Cedar),
+    'DWAP' : GeoCode(Wapsipinicon),
+    'DWPR' : GeoCode(Wapsipinicon, Pinicon_Ridge),
+    'DPOG' : GeoCode([Wapsipinicon, Galena], [Pinicon_Ridge, None]),
+    'DPOM' : GeoCode([Wapsipinicon, Maquoketa], [Pinicon_Ridge, None]),
+    'DSOG' : GeoCode([Wapsipinicon, Galena], [Spillville, None]),
+    'DSOM' : GeoCode([Wapsipinicon, Maquoketa], [Spillville, None]),
+    'DSPL' : GeoCode(Wapsipinicon, Spillville),
+
+    'OMAQ' : GeoCode(Maquoketa),
+    'OMQD' : GeoCode([Maquoketa, Dubuque]),
+    'OMQG' : GeoCode([Maquoketa, Galena]),
+    'OGAP' : GeoCode([Galena, St_Peter_Sandstone]),
+    'OGDP' : GeoCode([Galena, Platteville]),
+    'OGGP' : GeoCode(Galena),
+    'OGPD' : GeoCode([Prosser, Decorah_Shale]),
+    'ODGL' : GeoCode([Dubuque, Cummingsville]),
+    'ODUB' : GeoCode(Dubuque),
+    'OGSC' : GeoCode([Stewartville, Cummingsville]),
+    'OGSD' : GeoCode([Stewartville, Decorah_Shale]),
+    'OGVP' : GeoCode([Stewartville, Prosser]),
+    'OGSV' : GeoCode(Stewartville),
+    'OGPC' : GeoCode([Prosser, Cummingsville]),
+    'OGPR' : GeoCode(Prosser),
+    'OGCM' : GeoCode(Cummingsville),
+    'OGCD' : GeoCode([Cummingsville, Decorah_Shale]),
+    'ODCA' : GeoCode(Carimona),
+    'ODCR' : GeoCode(Decorah_Shale),
+    'ODPG' : GeoCode([Decorah_Shale, Glenwood]),
+    'ODPL' : GeoCode([Decorah_Shale, Platteville]),
+    'ODSP' : GeoCode([Decorah_Shale, St_Peter_Sandstone]),
+    'OPGW' : GeoCode([Platteville, Glenwood]),
+    'OPHF' : GeoCode(Hidden_Falls),
+    'OPMA' : GeoCode(Magnolia),
+    'OPMI' : GeoCode(Mifflin),
+    'OPPE' : GeoCode(Pecatonica),
+    'OPSP' : GeoCode([Platteville, St_Peter_Sandstone]),
+    'OPVJ' : GeoCode([Platteville, Jordan_Sandstone]),
+    'OPVL' : GeoCode(Platteville),
+    'OGSP' : GeoCode([Glenwood, St_Peter_Sandstone]),
+    'OGWD' : GeoCode(Glenwood),
+    'OSCJ' : GeoCode([St_Peter_Sandstone, Jordan_Sandstone]),
+    'OSCS' : GeoCode([St_Peter_Sandstone, St_Lawrence]),
+    'OSPC' : GeoCode([St_Peter_Sandstone, Prairie_Du_Chien]),
+    'OSPE' : GeoCode(Pigs_Eye),
+    'OSTN' : GeoCode(Tonti),
+    'OSTP' : GeoCode(St_Peter_Sandstone),
+    'OPCJ' : GeoCode([Prairie_Du_Chien, Jordan_Sandstone]),
+    'OPCM' : GeoCode([Prairie_Du_Chien, Mt_Simon_Sandstone]),
+    'OPCS' : GeoCode([Prairie_Du_Chien, St_Lawrence]),
+    'OPCT' : GeoCode([Prairie_Du_Chien, Tunnel_City]),
+    'OPDC' : GeoCode(Prairie_Du_Chien),
+    'OPNR' : GeoCode(New_Richmond),
+    'OPWR' : GeoCode(Willow_River),
+    'OPSH' : GeoCode(Shakopee),
+    'OOCV' : GeoCode(Coon_Valley),
+    'OOHC' : GeoCode(Hager_City),
+    'OPOD' : GeoCode(Oneota),
+    'ORRV' : GeoCode(Red_River),
+    #'OSTM' : GeoCode(Stoney_Mountain),
+    'OWBI' : GeoCode(Black_Island),
+    'OWIB' : GeoCode(Icebox),
+    'OWIN' : GeoCode(Winnipeg),
+
+    'CJDN' : GeoCode(Jordan_Sandstone),
+    'CJEC' : GeoCode([Jordan_Sandstone, Eau_Claire]),
+    'CJDW' : GeoCode([Jordan_Sandstone, Wonewoc_Sandstone]),
+    'CJMS' : GeoCode([Jordan_Sandstone, Mt_Simon_Sandstone]),
+    'CJSL' : GeoCode([Jordan_Sandstone, St_Lawrence]),
+    'CJTC' : GeoCode([Jordan_Sandstone, Tunnel_City]),
+    'CSLT' : GeoCode([St_Lawrence, Tunnel_City]),
+    'CSLW' : GeoCode([St_Lawrence, Wonewoc_Sandstone]),
+    'CSTL' : GeoCode(St_Lawrence),
+    'CTCG' : GeoCode(Tunnel_City),
+    'CTCM' : GeoCode([Tunnel_City, Mt_Simon_Sandstone]),
+    'CTCW' : GeoCode([Tunnel_City, Wonewoc_Sandstone]),
+    'CTCE' : GeoCode([Tunnel_City, Eau_Claire]),
+    'CTMZ' : GeoCode(Mazomanie),
+    'CTLR' : GeoCode(Lone_Rock),
+    'CLBK' : GeoCode(Birkmose),
+    'CLRE' : GeoCode(Reno),
+    'CWMS' : GeoCode([Wonewoc_Sandstone, Mt_Simon_Sandstone]),
+    'CWOC' : GeoCode(Wonewoc_Sandstone),
+    'CWEC' : GeoCode([Wonewoc_Sandstone, Eau_Claire]),
+    'CECR' : GeoCode(Eau_Claire),
+    'CEMS' : GeoCode([Eau_Claire, Mt_Simon_Sandstone]),
+    'CMFL' : GeoCode([Mt_Simon_Sandstone, Fond_Du_Lac]),
+    'CMRC' : GeoCode(Red_Clastics),
+    'CMSH' : GeoCode([Mt_Simon_Sandstone, Hinckley_Sandstone]),
+    'CMTS' : GeoCode(Mt_Simon_Sandstone),
+    'PMHN' : GeoCode(Hinckley_Sandstone),
+    'PMHF' : GeoCode([Hinckley_Sandstone, Fond_Du_Lac]),
+    'PMFL' : GeoCode(Fond_Du_Lac),
+    'PMSC' : GeoCode(Solor_Church),
+}
+
 """BEDROCK AGES"""
 
 Devonian = Age('Devonian')
@@ -193,13 +390,13 @@ GROUP_DICT = {group.name: group for group in GROUP_LIST}
 """BEDROCK FORMATIONS"""
 Cretaceous_Regolith = Formation('Cretaceous Regolith', parent=Cretaceous)
 Carlile_Shale = Formation('Carlile Shale', parent=Cretaceous)
-Greenhorn_Limestone = Formation('Greenhorn Limestone', parent=Cretaceous)
-Ganeros_Shale = Formation('Ganeros Shale', parent=Cretaceous)
+#Greenhorn_Limestone = Formation('Greenhorn Limestone', parent=Cretaceous)
+#Ganeros_Shale = Formation('Ganeros Shale', parent=Cretaceous)
 Dakota_Sandstone = Formation('Dakota Sandstone', parent=Cretaceous)
 Split_Rock = Formation('Split Rock', parent=Cretaceous)
 Windrow = Formation('Windrow', parent=Cretaceous)
 Lithograph_City = Formation('Lithograph City', parent=Upper_Cedar)
-Coralville = Formation('Coraville', parent=Cedar_Valley)
+Coralville = Formation('Coralville', parent=Cedar_Valley)
 Little_Cedar = Formation('Little Cedar', parent=Lower_Cedar)
 Pinicon_Ridge = Formation('Pinicon Ridge', parent=Wapsipinicon)
 Spillville = Formation('Spillville', parent=Wapsipinicon)
@@ -216,15 +413,15 @@ Glenwood = Formation('Glenwood', parent=Ordovician)
 St_Peter_Sandstone = Formation('St Peter Sandstone', parent=Ordovician)
 Shakopee = Formation('Shakopee', parent=Prairie_Du_Chien)
 Oneota = Formation('Oneota', parent=Prairie_Du_Chien)
-Stoney_Mountain = Formation('Stoney Mountain', parent=Ordovician)
+#Stoney_Mountain = Formation('Stoney Mountain', parent=Ordovician)
 Jordan_Sandstone = Formation('Jordan Sandstone', parent=Cambrian)
 St_Lawrence = Formation('St Lawrence', parent=Cambrian)
 Lone_Rock = Formation('Lone Rock', parent=Tunnel_City)
 Mazomanie = Formation('Mazomanie', parent=Tunnel_City)
-Davis = Formation('David', parent=Tunnel_City)
+#Davis = Formation('Davis', parent=Tunnel_City)
 Wonewoc_Sandstone = Formation('Wonewoc Sandstone', parent=Cambrian)
 Eau_Claire = Formation('Eau Claire', parent=Cambrian)
-Bonneterre = Formation('Bonneterre', parent=Cambrian)
+#Bonneterre = Formation('Bonneterre', parent=Cambrian)
 Mt_Simon_Sandstone = Formation('Mt Simon Sandstone', parent=Cambrian)
 Hinckley_Sandstone = Formation('Hinckley Sandstone', parent=Precambrian)
 Fond_Du_Lac = Formation('Fond Du Lac', parent=Precambrian)
@@ -235,8 +432,8 @@ FORMATION_LIST = [
     Split_Rock,
     Windrow,
     Carlile_Shale,
-    Greenhorn_Limestone,
-    Ganeros_Shale,
+    #Greenhorn_Limestone,
+    #Ganeros_Shale,
     Dakota_Sandstone,
     Lithograph_City,
     Coralville,
@@ -245,7 +442,7 @@ FORMATION_LIST = [
     Spillville,
     Red_River,
     Winnipeg,
-    Stoney_Mountain,
+    #Stoney_Mountain,
     Maquoketa,
     Dubuque,
     Stewartville,
@@ -261,10 +458,10 @@ FORMATION_LIST = [
     St_Lawrence,
     Lone_Rock,
     Mazomanie,
-    Davis,
+    #Davis,
     Wonewoc_Sandstone,
     Eau_Claire,
-    Bonneterre,
+    #Bonneterre,
     Mt_Simon_Sandstone,
     Hinckley_Sandstone,
     Fond_Du_Lac,
@@ -351,8 +548,8 @@ BEDROCK_CODE_MAP = {
     'KDKT' : GeoCode(Dakota_Sandstone),
     'KDNB' : GeoCode(Nishnabotna),
     'KDWB' : GeoCode(Woodbury),
-    'KGRN' : GeoCode(Greenhorn_Limestone),
-    'KGRS' : GeoCode(Ganeros_Shale),
+    #'KGRN' : GeoCode(Greenhorn_Limestone),
+    #'KGRS' : GeoCode(Ganeros_Shale),
     'KREG' : GeoCode(Cretaceous_Regolith),
     'KSRC' : GeoCode(Split_Rock),
     'KWIH' : GeoCode(Iron_Hill),
@@ -435,7 +632,7 @@ BEDROCK_CODE_MAP = {
     'OOHC' : GeoCode(Hager_City),
     'OPOD' : GeoCode(Oneota),
     'ORRV' : GeoCode(Red_River),
-    'OSTM' : GeoCode(Stoney_Mountain),
+    #'OSTM' : GeoCode(Stoney_Mountain),
     'OWBI' : GeoCode(Black_Island),
     'OWIB' : GeoCode(Icebox),
     'OWIN' : GeoCode(Winnipeg),

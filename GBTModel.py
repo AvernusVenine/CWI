@@ -762,6 +762,9 @@ class GBTModel:
         return report['macro avg']['f1-score'], accuracy_score(y_test[Field.GROUP].values.tolist(), y_pred)
 
     def train_formation(self, n_estimators=100):
+        if self.X_train is None:
+            self.load_data()
+
         print('BALANCING DATA SET')
         encoder = Age.init_encoder()
 
@@ -791,8 +794,8 @@ class GBTModel:
                        .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
         X_train = pd.concat([X_train_top, X_train_bot])
 
-        y_train_top = y_train[Field.FORMATION_TOP].rename(Field.FORMATION)
-        y_train_bot = y_train[Field.FORMATION_BOT].rename(Field.FORMATION)
+        y_train_top = y_train[[Field.FORMATION_TOP]].rename(columns={Field.FORMATION_TOP: Field.FORMATION})
+        y_train_bot = y_train[[Field.FORMATION_BOT]].rename(columns={Field.FORMATION_BOT: Field.FORMATION})
         y_train = pd.concat([y_train_top, y_train_bot])
 
         X_test_top = (X_test.drop(columns=[Field.DEPTH_BOT, Field.ELEVATION_BOT])
@@ -801,20 +804,44 @@ class GBTModel:
                        .rename(columns={Field.DEPTH_BOT : Field.DEPTH, Field.ELEVATION_BOT : Field.ELEVATION}))
         X_test = pd.concat([X_test_top, X_test_bot])
 
-        y_test_top = y_test[Field.FORMATION_TOP].rename(Field.FORMATION)
-        y_test_bot = y_test[Field.FORMATION_BOT].rename(Field.FORMATION)
+        y_test_top = y_test[[Field.FORMATION_TOP]].rename(columns={Field.FORMATION_TOP: Field.FORMATION})
+        y_test_bot = y_test[[Field.FORMATION_BOT]].rename(columns={Field.FORMATION_BOT: Field.FORMATION})
         y_test = pd.concat([y_test_top, y_test_bot])
 
         """Drop noisy/unnecessary features"""
         X_train = X_train.drop(columns=[Field.PREVIOUS_MEMBER])
         X_test = X_test.drop(columns=[Field.PREVIOUS_MEMBER])
 
+        drop_dict = {
+            38: .25,
+        }
+
+        _, encoder, _ = Bedrock.init_encoders()
+
+        for formation, percentage in drop_dict.items():
+            mask = y_train[Field.FORMATION] == formation
+            indices = y_train[mask].index
+
+            np.random.seed(self.random_state)
+            kept_indices = np.random.choice(indices, size=int(len(indices) * percentage))
+
+            mask = ~mask | y_train.index.isin(kept_indices)
+
+            X_train = X_train[mask].reset_index(drop=True)
+            y_train = y_train[mask].reset_index(drop=True)
+
+        weights = X_train[Field.INTERPRETATION_METHOD].values.tolist()
+
+        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
+        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
+
         print('TRAINING MODEL')
 
         model = xgboost.XGBClassifier(
+            objective='multi:softmax',
             booster='dart',
             n_estimators=n_estimators,
-            verbosity=1,
+            verbosity=2,
             device='cuda',
 
             rate_drop=.1,
@@ -823,7 +850,7 @@ class GBTModel:
 
             tree_method='hist'
         )
-        model.fit(X_train, y_train)
+        model.fit(X_train, y_train, sample_weight=weights)
 
         joblib.dump(model, f'{self.path}.frm.mdl')
         joblib.dump(X_train.columns.tolist(), f'{self.path}.frm.fts')
@@ -833,18 +860,18 @@ class GBTModel:
 
         y_pred = self.group_model.predict(X_test)
 
-        print('Accuracy: ', accuracy_score(y_test.tolist(), y_pred))
+        print('Accuracy: ', accuracy_score(y_test[Field.FORMATION].values.tolist(), y_pred))
 
         report = classification_report(
-            y_test.tolist(),
+            y_test[Field.FORMATION].values.tolist(),
             y_pred,
             zero_division=0,
             output_dict=True
         )
 
-        print(classification_report(y_test.tolist(), y_pred, zero_division=0))
+        print(classification_report(y_test[Field.FORMATION].values.tolist(), y_pred, zero_division=0))
 
-        return report['macro avg']['f1-score'], accuracy_score(y_test.tolist(), y_pred)
+        return report['macro avg']['f1-score'], accuracy_score(y_test[Field.FORMATION].values.tolist(), y_pred)
 
     def train_member(self, n_estimators=100):
         print('BALANCING DATA SET')
