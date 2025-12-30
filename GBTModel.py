@@ -333,6 +333,85 @@ class GBTModel:
 
         return old_wells, new_wells, probs
 
+    def load_and_split_data(self):
+        """
+        Loads then splits the data into its top and bottom components for bedrock classification
+        :return:
+        """
+        print("LOADING DATA SET")
+
+        df = Data.load('weighted.parquet')
+
+        print('ENCODING DATA')
+        df = utils.encode_color(df)
+        df = utils.encode_hardness(df)
+        df = utils.encode_weights(df)
+
+        df_top = df.drop(columns=[Field.DEPTH_BOT]).rename(columns={Field.DEPTH_TOP: Field.DEPTH})
+        df_top[Field.ORDER] = 0
+        df_bot = df.drop(columns=[Field.DEPTH_TOP]).rename(columns={Field.DEPTH_BOT: Field.DEPTH})
+        df_bot[Field.ORDER] = 1
+
+        df = pd.concat([df_top, df_bot])
+
+        df = df.sort_values([Field.RELATEID, Field.DEPTH, Field.ORDER])
+        df = df[df[Field.STRAT] != 'BSMT']
+        self.df = df
+
+        y = df[[Field.STRAT, Field.LITH_PRIM, Field.ORDER]]
+        X = df.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM, Field.ORDER])
+
+        X[Field.UTME] = X[Field.UTME].fillna(X[Field.UTME].min() * .9)
+        X[Field.UTMN] = X[Field.UTMN].fillna(X[Field.UTMN].min() * .9)
+        X[Field.ELEVATION] = X[Field.ELEVATION].fillna(X[Field.ELEVATION].min() * .8)
+        X[Field.DEPTH] = X[Field.DEPTH].fillna(-25)
+
+        """Create a depth based elevation feature to replace elevation"""
+        X[Field.ELEVATION] = X[Field.ELEVATION] - X[Field.DEPTH]
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=self.random_state)
+
+        print('FITTING SCALERS')
+
+        self.utme_scaler = StandardScaler()
+        self.utme_scaler.fit(X_train[[Field.UTME]])
+
+        self.utmn_scaler = StandardScaler()
+        self.utmn_scaler.fit(X_train[[Field.UTMN]])
+
+        self.elevation_scaler = StandardScaler()
+        self.elevation_scaler.fit(X_train[[Field.ELEVATION]].values.tolist())
+
+        self.depth_scaler = StandardScaler()
+        self.depth_scaler.fit(X_train[[Field.DEPTH]].values.tolist())
+
+        print('FITTING PCA')
+
+        self.pca = PCA(n_components=50)
+        self.pca.fit(X_train[[f"emb_{i}" for i in range(384)]])
+
+        joblib.dump(self.utme_scaler, f'{self.path}.utme.scl')
+        joblib.dump(self.utmn_scaler, f'{self.path}.utmn.scl')
+        joblib.dump(self.elevation_scaler, f'{self.path}.elevation.scl')
+        joblib.dump(self.depth_scaler, f'{self.path}.depth.scl')
+        joblib.dump(self.pca, f'{self.path}.pca')
+
+        print('APPLYING DATA REFINEMENTS')
+        X[Field.UTME] = self.utme_scaler.transform(X[[Field.UTME]])
+        X[Field.UTMN] = self.utmn_scaler.transform(X[[Field.UTMN]])
+        X[Field.ELEVATION] = self.elevation_scaler.transform(X[[Field.ELEVATION]])
+        X[Field.DEPTH] = self.depth_scaler.transform(X[[Field.DEPTH]])
+
+        X[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X[[f"emb_{i}" for i in range(384)]])
+        X = X.drop(columns=[f"emb_{i}" for i in range(384)])
+
+        X = X.astype(float)
+
+        self.X = X
+        self.y = y
+
+        return X, y
+
     def load_data(self):
         """
         Loads the data set for training and testing
@@ -341,19 +420,17 @@ class GBTModel:
         print("LOADING DATA SET")
 
         df = Data.load('weighted.parquet')
+
         df = df.sort_values([Field.RELATEID, Field.DEPTH_TOP])
         df = df[df[Field.STRAT] != 'BSMT'] #TODO: Fully drop this label at some point
         self.df = df
 
-        y = df[[Field.STRAT, Field.LITH_PRIM]]
-        X = df.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM])
+        df = Age.encode_type(df)
+
+        y = df[[Field.STRAT, Field.LITH_PRIM, Field.AGE, Field.TYPE]]
+        X = df.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM, Field.AGE, Field.TYPE])
 
         print('ENCODING DATA')
-        y = Age.encode_age(y)
-        y = Texture.encode_texture(y)
-        y = Bedrock.encode_bedrock(y)
-        y = Precambrian.encode_precambrian(y)
-
         X = utils.encode_hardness(X)
         X = utils.encode_color(X)
 
@@ -371,17 +448,9 @@ class GBTModel:
 
         X = X.drop(columns=[Field.ELEVATION])
 
-        y[Field.AGE] = y[Field.AGE].replace(-100, -1)
-        y[Field.TEXTURE] = y[Field.TEXTURE].replace(-100, -1)
-
         """Get the info of previous layer for sequential information"""
-        group_encoder, formation_encoder, member_encoder = Bedrock.init_encoders()
-
         X[Field.PREVIOUS_AGE] = y.groupby(df[Field.RELATEID])[Field.AGE].shift(-1).fillna(-1)
-        X[Field.PREVIOUS_TEXTURE] = y.groupby(df[Field.RELATEID])[Field.TEXTURE].shift(-1).fillna(-1)
-        X[Field.PREVIOUS_GROUP] = y.groupby(df[Field.RELATEID])[Field.GROUP_BOT].shift(-1).fillna(group_encoder.transform([None])[0])
-        X[Field.PREVIOUS_FORMATION] = y.groupby(df[Field.RELATEID])[Field.FORMATION_BOT].shift(-1).fillna(formation_encoder.transform([None])[0])
-        X[Field.PREVIOUS_MEMBER] = y.groupby(df[Field.RELATEID])[Field.MEMBER_BOT].shift(-1).fillna(member_encoder.transform([None])[0])
+        #TODO: Possibly add back other sequential features but just age for now
 
         mask = y[Field.AGE] != -1
         X = X[mask].reset_index(drop=True)
@@ -449,9 +518,88 @@ class GBTModel:
         self.y_train = y_train
         self.y_test = y_test
 
+        return X_train, X_test, y_train, y_test
+
+    def train_type(self, n_estimators=125):
+        """
+        Differentiates between Recent and Bedrock layers
+        """
+        X_train, X_test, y_train, y_test = self.load_data()
+
+        print('BALANCING DATA SET')
+
+        encoder = Age.init_type_encoder()
+
+        drop_dict = {
+            'Quaternary': .25
+        }
+
+        for age, percentage in drop_dict.items():
+            mask = y_train[Field.AGE] == encoder.transform([age])[0]
+            indices = y_train[mask].index
+
+            """Necessary to recreate random conditions"""
+            np.random.seed(self.random_state)
+            kept_indices = np.random.choice(indices, size=int(len(indices) * percentage))
+
+            mask = ~mask | y_train.index.isin(kept_indices)
+
+            X_train = X_train[mask].reset_index(drop=True)
+            y_train = y_train[mask].reset_index(drop=True)
+
+        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['Pitt'])[0], 4000, Field.TYPE)
+        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['Pavement'])[0], 4000, Field.TYPE)
+
+        print("APPLYING WEIGHTS")
+
+        weights = X_train[Field.INTERPRETATION_METHOD].values.tolist()
+
+        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
+        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
+
+        print('TRAINING MODEL')
+
+        model = xgboost.XGBClassifier(
+            booster='dart',
+            n_estimators=n_estimators,
+            verbosity=2,
+            device='cuda',
+
+            rate_drop=.1,
+            normalize_type='forest',
+            sample_type='weighted',
+
+            tree_method='hist'
+        )
+        model.fit(X_train, y_train[Field.TYPE], sample_weight=weights)
+
+        joblib.dump(model, f'{self.path}.type.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.type.fts')
+        self.type_model = model
+
+        print('EVALUATING CLASSIFIER')
+
+        y_pred = self.type_model.predict(X_test)
+
+        print('Accuracy: ', accuracy_score(y_test[Field.TYPE].tolist(), y_pred))
+        print(classification_report(y_test[Field.TYPE].tolist(), y_pred, zero_division=0))
+
+        report = classification_report(
+            y_test[Field.TYPE].tolist(),
+            y_pred,
+            zero_division=0,
+            output_dict=True
+        )
+
+        return report['macro avg']['f1-score'], report['accuracy']
+
     def train_age(self, n_estimators=125):
-        if self.X_train is None:
-            self.load_data()
+        """
+        Differentiates between bedrock ages
+        """
+        X, y = self.load_and_split_data()
+
+        y = Age.encode_age(y)
 
         print('BALANCING DATA SET')
         encoder = Age.init_encoder()
@@ -465,6 +613,7 @@ class GBTModel:
         X_train = X_train.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION])
         X_test = X_test.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION])
 
+        #TODO: This should instead k-cluster down the values to a certain percentage
         drop_dict = {
             'Q': .25
         }

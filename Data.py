@@ -17,6 +17,7 @@ COLORS = ['BLACK', 'BROWN', 'BLUE', 'GREEN', 'ORANGE', 'PINK', 'PURPLE', 'RED', 
           'YELLOW', 'VARIED']
 
 class Field:
+    ORDER = 'order'
     UTME = 'utme'
     UTMN = 'utmn'
     ELEVATION = 'elevation'
@@ -25,6 +26,7 @@ class Field:
     STRAT = 'strat'
     RELATEID = 'relateid'
     AGE = 'age'
+    TYPE = 'type'
     DEPTH_TOP = 'depth_top'
     DEPTH_BOT = 'depth_bot'
     DEPTH = 'depth'

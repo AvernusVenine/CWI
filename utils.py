@@ -17,6 +17,7 @@ from Data import Field
 import Age
 
 def encode_weights(df):
+    warnings.filterwarnings("ignore")
 
     weight_map = {
         'A': .75,
@@ -50,6 +51,7 @@ def reduce_majority(X, y, percentage_dict):
     :param percentage_dict: Dictionary of ages and percentage of layers to keep
     :return: Balanced holes numpy array and labels
     """
+
 
     encoder = Age.init_encoder()
 
