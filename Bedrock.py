@@ -92,11 +92,17 @@ class GeoCode:
 
         return self.top == other.top and self.bot == other.bot
 
-    def top_contains(self, bedrock):
-        return bedrock in self.top_lineage
+    def get_top(self, idx):
+        if idx >= len(self.top_lineage):
+            return None
 
-    def bot_contains(self, bedrock):
-        return bedrock in self.bot_lineage
+        return self.top_lineage[idx]
+
+    def get_bot(self, idx):
+        if idx >= len(self.bot_lineage):
+            return None
+
+        return self.bot_lineage[idx]
 
 """BEDROCKS"""
 Cretaceous = Bedrock('K')

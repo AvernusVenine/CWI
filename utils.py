@@ -3,6 +3,7 @@ import pandas as pd
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.cluster import KMeans
 import re
 import warnings
 import matplotlib.pyplot as plt
@@ -40,6 +41,22 @@ def encode_weights(df):
     }
 
     df[Field.INTERPRETATION_METHOD] = df[Field.INTERPRETATION_METHOD].replace(weight_map)
+
+    return df
+
+def cluster_naive(X, y, clusters, label, col):
+    mask = y[col] == label
+
+    df = X.loc[mask, [Field.UTME, Field.UTMN]]
+
+    model = KMeans(n_clusters=clusters)
+    df['label'] = model.fit_predict(df)
+
+    centroids = model.cluster_centers_
+
+    coords = df[[Field.UTME, Field.UTMN]].values
+    assigned_centroids = centroids[df['label'].values]
+    df['dist'] = np.linalg.norm(coords - assigned_centroids, axis=1)
 
     return df
 

@@ -87,7 +87,7 @@ def encode_type(df):
 
     return df
 
-def encode_age(df):
+def encode_age(X, y):
     """
     Encodes the age part of a code
     :param df: Dataframe of layers
@@ -95,24 +95,30 @@ def encode_age(df):
     """
     warnings.filterwarnings("ignore")
 
-    df = df[~df['strat'].isin(['PVMT', 'PITT', 'PUDF'])]
+    mask = ~y[Field.STRAT].isin(['PVMT', 'PITT', 'PUDF'])
 
-    df[Field.AGE] = df[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
+    y = y[mask]
+    X = X[mask]
 
-    df.loc[df[Field.STRAT].isin(['PMHN', 'PMHF', 'PMSC', 'PMFL']), Field.STRAT] = 'G'
+    y[Field.AGE] = y[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
 
-    df.loc[df[Field.STRAT].astype(str).str[0] == 'P', Field.AGE] = 'P'
+    y.loc[y[Field.STRAT].isin(['PMHN', 'PMHF', 'PMSC', 'PMFL']), Field.STRAT] = 'G'
 
-    df = df.dropna(subset=[Field.AGE])
+    y.loc[y[Field.STRAT].astype(str).str[0] == 'P', Field.AGE] = 'P'
 
-    df.loc[df[Field.ORDER] == 0, Field.AGE] = df.loc[df[Field.ORDER] == 0, Field.STRAT].apply(
+    mask = ~y[Field.AGE].isna()
+
+    y = y[mask]
+    X = X[mask]
+
+    y.loc[y[Field.ORDER] == 0, Field.AGE] = y.loc[y[Field.ORDER] == 0, Field.AGE].apply(
         lambda x : x.top_lineage[0] if isinstance(x, Bedrock.GeoCode) else x)
-    df.loc[df[Field.ORDER] == 1, Field.AGE] = df.loc[df[Field.ORDER] == 1, Field.STRAT].apply(
+    y.loc[y[Field.ORDER] == 1, Field.AGE] = y.loc[y[Field.ORDER] == 1, Field.AGE].apply(
         lambda x: x.bot_lineage[0] if isinstance(x, Bedrock.GeoCode) else x)
 
     encoder = LabelEncoder()
     encoder.fit(BEDROCK_AGE_LIST)
 
-    df[Field.AGE] = encoder.transform(df[Field.AGE])
+    y[Field.AGE] = encoder.transform(y[Field.AGE])
 
-    return df
+    return X, y

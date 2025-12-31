@@ -2,7 +2,7 @@ import numpy as np
 import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.decomposition import PCA
 import pandas as pd
 import warnings
@@ -407,10 +407,7 @@ class GBTModel:
 
         X = X.astype(float)
 
-        self.X = X
-        self.y = y
-
-        return X, y
+        return train_test_split(X, y, random_state=self.random_state)
 
     def load_data(self):
         """
@@ -597,44 +594,23 @@ class GBTModel:
         """
         Differentiates between bedrock ages
         """
-        X, y = self.load_and_split_data()
+        X_train, X_test, y_train, y_test = self.load_and_split_data()
 
-        y = Age.encode_age(y)
+        X_train, y_train = Age.encode_age(X_train, y_train)
+        X_test, y_test = Age.encode_age(X_test, y_test)
 
         print('BALANCING DATA SET')
-        encoder = Age.init_encoder()
-
-        X_train = self.X_train.copy()
-        y_train = self.y_train.copy()
-
-        X_test = self.X_test
+        encoder = LabelEncoder()
+        encoder.fit(Age.BEDROCK_AGE_LIST)
 
         """Remove noisy/unnecessary features"""
-        X_train = X_train.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION])
-        X_test = X_test.drop(columns=[Field.PREVIOUS_TEXTURE, Field.PREVIOUS_MEMBER, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION])
 
         #TODO: This should instead k-cluster down the values to a certain percentage
         drop_dict = {
-            'Q': .25
+            'P': .25,
+            'O': .33,
+            'C': .33,
         }
-
-        for age, percentage in drop_dict.items():
-            mask = y_train[Field.AGE] == encoder.transform([age])[0]
-            indices = y_train[mask].index
-
-            """Necessary to recreate random conditions"""
-            np.random.seed(self.random_state)
-            kept_indices = np.random.choice(indices, size=int(len(indices) * percentage))
-
-            mask = ~mask | y_train.index.isin(kept_indices)
-
-            X_train = X_train[mask].reset_index(drop=True)
-            y_train = y_train[mask].reset_index(drop=True)
-
-        encoder = Age.init_encoder()
-
-        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['X'])[0], 4000, Field.AGE)
-        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['Y'])[0], 4000, Field.AGE)
 
         print("APPLYING WEIGHTS")
 
@@ -648,7 +624,7 @@ class GBTModel:
         model = xgboost.XGBClassifier(
             booster='dart',
             n_estimators=n_estimators,
-            verbosity=1,
+            verbosity=2,
             device='cuda',
 
             rate_drop=.1,
@@ -667,11 +643,96 @@ class GBTModel:
 
         y_pred = self.age_model.predict(X_test)
 
-        print('Accuracy: ', accuracy_score(self.y_test[Field.AGE].tolist(), y_pred))
-        print(classification_report(self.y_test[Field.AGE].tolist(), y_pred, zero_division=0))
+        print('Accuracy: ', accuracy_score(y_test[Field.AGE].tolist(), y_pred))
+        print(classification_report(y_test[Field.AGE].tolist(), y_pred, zero_division=0))
 
         report = classification_report(
-            self.y_test[Field.AGE].tolist(),
+            y_test[Field.AGE].tolist(),
+            y_pred,
+            zero_division=0,
+            output_dict=True
+        )
+
+        self.y_pred = y_pred
+
+        return report['macro avg']['f1-score'], report['accuracy']
+
+    def train_devonian(self, n_estimators=125):
+        X_train, X_test, y_train, y_test = self.load_and_split_data()
+
+        X_train = X_train.drop(columns=[f"pca_{i}" for i in range(50)])
+        X_test = X_test.drop(columns=[f"pca_{i}" for i in range(50)])
+
+        X_train, y_train = Age.encode_age(X_train, y_train)
+        X_test, y_test = Age.encode_age(X_test, y_test)
+
+        """Filter and encode data"""
+        mask = y_train[Field.AGE] == 1
+
+        X_train = X_train[mask]
+        y_train = y_train[mask]
+
+        y_train['label'] = y_train[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
+
+        y_train.loc[y_train[Field.ORDER] == 0, 'label'] = y_train.loc[y_train[Field.ORDER] == 0, 'label'].apply(
+            lambda x : x.get_top(1) if isinstance(x, Bedrock.GeoCode) else x)
+        y_train.loc[y_train[Field.ORDER] == 1, 'label'] = y_train.loc[y_train[Field.ORDER] == 1, 'label'].apply(
+            lambda x : x.get_bot(1) if isinstance(x, Bedrock.GeoCode) else x)
+
+        mask = y_test[Field.AGE] == 1
+
+        X_test = X_test[mask]
+        y_test = y_test[mask]
+
+        y_test['label'] = y_test[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
+
+        y_test.loc[y_test[Field.ORDER] == 0, 'label'] = y_test.loc[y_test[Field.ORDER] == 0, 'label'].apply(
+            lambda x: x.get_top(1) if isinstance(x, Bedrock.GeoCode) else x)
+        y_test.loc[y_test[Field.ORDER] == 1, 'label'] = y_test.loc[y_test[Field.ORDER] == 1, 'label'].apply(
+            lambda x: x.get_bot(1) if isinstance(x, Bedrock.GeoCode) else x)
+
+        encoder = LabelEncoder()
+        encoder.fit(['Cedar Valley', 'Wapsipinicon', None])
+
+        y_train['label'] = encoder.transform(y_train[['label']])
+        y_test['label'] = encoder.transform(y_test[['label']])
+
+        print("APPLYING WEIGHTS")
+
+        weights = X_train[Field.INTERPRETATION_METHOD].values.tolist()
+
+        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
+        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
+
+        print('TRAINING MODEL')
+
+        model = xgboost.XGBClassifier(
+            booster='dart',
+            n_estimators=n_estimators,
+            verbosity=2,
+            device='cuda',
+
+            rate_drop=.1,
+            normalize_type='forest',
+            sample_type='weighted',
+
+            tree_method='hist'
+        )
+        model.fit(X_train, y_train['label'], sample_weight=weights)
+
+        joblib.dump(model, f'{self.path}.dev.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.dev.fts')
+        self.dev_model = model
+
+        print('EVALUATING CLASSIFIER')
+
+        y_pred = self.dev_model.predict(X_test)
+
+        print('Accuracy: ', accuracy_score(y_test['label'].tolist(), y_pred))
+        print(classification_report(y_test['label'].tolist(), y_pred, zero_division=0))
+
+        report = classification_report(
+            y_test['label'].tolist(),
             y_pred,
             zero_division=0,
             output_dict=True
