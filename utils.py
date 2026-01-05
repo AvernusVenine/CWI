@@ -1,3 +1,6 @@
+import matplotlib
+import Data
+matplotlib.use('Agg')
 import numpy as np
 import pandas as pd
 import torch
@@ -8,6 +11,8 @@ import re
 import warnings
 import matplotlib.pyplot as plt
 import random
+from xgboost import plot_importance
+import joblib
 
 import Bedrock
 import Texture
@@ -303,36 +308,21 @@ def sequence_layers(df):
 
     return X, y
 
-def rnn_collate_fn(batch):
-    """
-    Collate function for the LayerRNN Model, since it expects every item in the batch to have the same number of layers,
-    so I have to pad the shorter ones
-    :param batch: List of data points in a batch
-    :return: Padded data, padded labels, original lengths
-    """
+def plot_features(path, importance_type='gain'):
+    model = joblib.load(path)
 
-    # Claude was used to help bug fix this based off my original design
+    plot_importance(model, importance_type=importance_type)
+    plt.savefig('feature_importance.png')
+    plt.close()
 
-    features, labels = zip(*batch)
+def plot_strat(strat):
+    df = Data.load('data.parquet')
 
-    features_padded = pad_sequence(features, batch_first=True, padding_value=-1.0)
+    for s in strat:
+        mask = df[Field.STRAT].isin(s)
+        plt.scatter(df.loc[mask, Field.UTME], df.loc[mask, Field.UTMN],
+                    label=s, alpha=0.6, s=10)
 
-    age_padded = pad_sequence([label['age'] for label in labels], batch_first=True, padding_value=-100)
-    texture_padded = pad_sequence([label['texture'] for label in labels], batch_first=True, padding_value=-100)
-    group_padded = pad_sequence([label['group'] for label in labels], batch_first=True, padding_value=0.0)
-    formation_padded = pad_sequence([label['formation'] for label in labels], batch_first=True, padding_value=0.0)
-    member_padded = pad_sequence([label['member'] for label in labels], batch_first=True, padding_value=0.0)
-    category_padded = pad_sequence([label['category'] for label in labels], batch_first=True, padding_value=0.0)
-    lithology_padded = pad_sequence([label['lithology'] for label in labels], batch_first=True, padding_value=0.0)
-
-    labels_padded = {
-        'age': age_padded,
-        'texture': texture_padded,
-        'group': group_padded,
-        'formation': formation_padded,
-        'member': member_padded,
-        'category': category_padded,
-        'lithology': lithology_padded,
-    }
-
-    return features_padded, labels_padded
+    plt.axis('equal')
+    plt.savefig('mapping.png')
+    plt.close()

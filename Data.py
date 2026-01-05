@@ -16,7 +16,10 @@ DATA_PATH = 'compiled_data/data.parquet'
 COLORS = ['BLACK', 'BROWN', 'BLUE', 'GREEN', 'ORANGE', 'PINK', 'PURPLE', 'RED', 'GRAY', 'WHITE', 'LIGHT', 'DARK',
           'YELLOW', 'VARIED']
 
+"""List of the most specific label the previous layer can be assigned"""
+
 class Field:
+    LENGTH = 'length'
     ORDER = 'order'
     UTME = 'utme'
     UTMN = 'utmn'

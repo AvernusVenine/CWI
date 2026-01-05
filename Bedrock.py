@@ -92,6 +92,12 @@ class GeoCode:
 
         return self.top == other.top and self.bot == other.bot
 
+    def __contains__(self, other):
+        if not isinstance(other, GeoCode):
+            return False
+
+        return set(other.top_lineage).issubset(set(self.top_lineage)) and set(other.bot_lineage).issubset(set(self.bot_lineage))
+
     def get_top(self, idx):
         if idx >= len(self.top_lineage):
             return None

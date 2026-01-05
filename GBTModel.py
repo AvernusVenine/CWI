@@ -6,6 +6,8 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.decomposition import PCA
 import pandas as pd
 import warnings
+from sklearn.naive_bayes import GaussianNB
+from sklearn.gaussian_process import GaussianProcessClassifier
 
 import Bedrock
 import Precambrian
@@ -347,6 +349,8 @@ class GBTModel:
         df = utils.encode_hardness(df)
         df = utils.encode_weights(df)
 
+        df[Field.LENGTH] = df[Field.DEPTH_BOT] - df[Field.DEPTH_TOP]
+
         df_top = df.drop(columns=[Field.DEPTH_BOT]).rename(columns={Field.DEPTH_TOP: Field.DEPTH})
         df_top[Field.ORDER] = 0
         df_bot = df.drop(columns=[Field.DEPTH_TOP]).rename(columns={Field.DEPTH_BOT: Field.DEPTH})
@@ -358,7 +362,7 @@ class GBTModel:
         df = df[df[Field.STRAT] != 'BSMT']
         self.df = df
 
-        y = df[[Field.STRAT, Field.LITH_PRIM, Field.ORDER]]
+        y = df[[Field.RELATEID, Field.STRAT, Field.LITH_PRIM, Field.ORDER]]
         X = df.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM, Field.ORDER])
 
         X[Field.UTME] = X[Field.UTME].fillna(X[Field.UTME].min() * .9)
@@ -424,7 +428,7 @@ class GBTModel:
 
         df = Age.encode_type(df)
 
-        y = df[[Field.STRAT, Field.LITH_PRIM, Field.AGE, Field.TYPE]]
+        y = df[[Field.RELATEID, Field.STRAT, Field.LITH_PRIM, Field.AGE, Field.TYPE]]
         X = df.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM, Field.AGE, Field.TYPE])
 
         print('ENCODING DATA')
@@ -657,11 +661,12 @@ class GBTModel:
 
         return report['macro avg']['f1-score'], report['accuracy']
 
-    def train_devonian(self, n_estimators=125):
+    def load_devonian(self):
         X_train, X_test, y_train, y_test = self.load_and_split_data()
 
-        X_train = X_train.drop(columns=[f"pca_{i}" for i in range(50)])
-        X_test = X_test.drop(columns=[f"pca_{i}" for i in range(50)])
+        """Drop unnecessary features"""
+        X_train = X_train.drop(columns=[f"pca_{i}" for i in range(50)] + Data.COLORS + [Field.HARDNESS])
+        X_test = X_test.drop(columns=[f"pca_{i}" for i in range(50)] + Data.COLORS + [Field.HARDNESS])
 
         X_train, y_train = Age.encode_age(X_train, y_train)
         X_test, y_test = Age.encode_age(X_test, y_test)
@@ -675,9 +680,9 @@ class GBTModel:
         y_train['label'] = y_train[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
 
         y_train.loc[y_train[Field.ORDER] == 0, 'label'] = y_train.loc[y_train[Field.ORDER] == 0, 'label'].apply(
-            lambda x : x.get_top(1) if isinstance(x, Bedrock.GeoCode) else x)
+            lambda x: x.get_top(1) if isinstance(x, Bedrock.GeoCode) else x)
         y_train.loc[y_train[Field.ORDER] == 1, 'label'] = y_train.loc[y_train[Field.ORDER] == 1, 'label'].apply(
-            lambda x : x.get_bot(1) if isinstance(x, Bedrock.GeoCode) else x)
+            lambda x: x.get_bot(1) if isinstance(x, Bedrock.GeoCode) else x)
 
         mask = y_test[Field.AGE] == 1
 
@@ -692,7 +697,186 @@ class GBTModel:
             lambda x: x.get_bot(1) if isinstance(x, Bedrock.GeoCode) else x)
 
         encoder = LabelEncoder()
-        encoder.fit(['Cedar Valley', 'Wapsipinicon', None])
+        encoder.fit(['Cedar Valley', 'Wapsipinicon'])
+
+        mask = y_train['label'].isna()
+        X_train = X_train[~mask]
+        y_train = y_train[~mask]
+
+        mask = y_test['label'].isna()
+        X_test = X_test[~mask]
+        y_test = y_test[~mask]
+
+        y_train['label'] = encoder.transform(y_train[['label']])
+        y_test['label'] = encoder.transform(y_test[['label']])
+
+        print("APPLYING WEIGHTS")
+
+        weights = X_train[Field.INTERPRETATION_METHOD]
+
+        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
+        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
+
+        return X_train, X_test, y_train, y_test, weights
+
+    def train_devonian(self, data=None, n_estimators=100, depth=4, drop=.1, eta=.3):
+        if data is None:
+            X_train, X_test, y_train, y_test, weights = self.load_devonian()
+        else:
+            X_train = data[0]
+            X_test = data[1]
+            y_train = data[2]
+            y_test = data[3]
+            weights = data[4]
+
+        X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=.5, random_state=self.random_state)
+
+        print('TRAINING MODEL')
+
+        model = xgboost.XGBClassifier(
+            booster='dart',
+            n_estimators=n_estimators,
+            max_depth=depth,
+            eta=eta,
+            verbosity=1,
+            device='cuda',
+
+            rate_drop=drop,
+            normalize_type='forest',
+            sample_type='weighted',
+
+            tree_method='hist'
+        )
+        model.fit(X_train, y_train['label'], eval_set=[(X_val, y_val['label'])], sample_weight=weights.values.tolist(), verbose=True)
+
+        joblib.dump(model, f'{self.path}.dev.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.dev.fts')
+        self.dev_model = model
+
+        print('EVALUATING CLASSIFIER')
+
+        y_pred = self.dev_model.predict(X_test)
+
+        print('Accuracy: ', accuracy_score(y_test['label'].tolist(), y_pred))
+        print(classification_report(y_test['label'].tolist(), y_pred, zero_division=0))
+
+    def load_cedar_valley(self):
+        X_train, X_test, y_train, y_test, weights = self.load_devonian()
+
+        """Filter and encode data"""
+        mask = y_train['label'] == 0
+
+        X_train = X_train[mask]
+        y_train = y_train[mask]
+        weights = weights[mask]
+
+        y_train['label'] = y_train[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
+
+        y_train.loc[y_train[Field.ORDER] == 0, 'label'] = y_train.loc[y_train[Field.ORDER] == 0, 'label'].apply(
+            lambda x: x.get_top(2) if isinstance(x, Bedrock.GeoCode) else x)
+        y_train.loc[y_train[Field.ORDER] == 1, 'label'] = y_train.loc[y_train[Field.ORDER] == 1, 'label'].apply(
+            lambda x: x.get_bot(2) if isinstance(x, Bedrock.GeoCode) else x)
+
+        mask = y_test['label'] == 0
+
+        X_test = X_test[mask]
+        y_test = y_test[mask]
+
+        y_test['label'] = y_test[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
+
+        y_test.loc[y_test[Field.ORDER] == 0, 'label'] = y_test.loc[y_test[Field.ORDER] == 0, 'label'].apply(
+            lambda x: x.get_top(2) if isinstance(x, Bedrock.GeoCode) else x)
+        y_test.loc[y_test[Field.ORDER] == 1, 'label'] = y_test.loc[y_test[Field.ORDER] == 1, 'label'].apply(
+            lambda x: x.get_bot(2) if isinstance(x, Bedrock.GeoCode) else x)
+
+        encoder = LabelEncoder()
+        encoder.fit(['Upper Cedar Valley', 'Lower Cedar Valley', None])
+
+        y_train['label'] = encoder.transform(y_train[['label']])
+        y_test['label'] = encoder.transform(y_test[['label']])
+
+        return X_train, X_test, y_train, y_test, weights
+
+    def train_cedar_valley(self, data=None, n_estimators=100, depth=4, drop=.1, eta=.3):
+        if data is None:
+            X_train, X_test, y_train, y_test, weights = self.load_cedar_valley()
+        else:
+            X_train = data[0]
+            X_test = data[1]
+            y_train = data[2]
+            y_test = data[3]
+            weights = data[4]
+
+        X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=.5, random_state=self.random_state)
+
+        print('TRAINING MODEL')
+
+        model = xgboost.XGBClassifier(
+            booster='dart',
+            n_estimators=n_estimators,
+            max_depth=depth,
+            eta=eta,
+            verbosity=1,
+            device='cuda',
+
+            rate_drop=drop,
+            normalize_type='forest',
+            sample_type='weighted',
+
+            tree_method='hist'
+        )
+        model.fit(X_train, y_train['label'], eval_set=[(X_val, y_val['label'])], sample_weight=weights.values.tolist(), verbose=True)
+
+        joblib.dump(model, f'{self.path}.cdv.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.cdv.fts')
+        self.cdv_model = model
+
+        print('EVALUATING CLASSIFIER')
+
+        y_pred = self.cdv_model.predict(X_test)
+
+        print('Accuracy: ', accuracy_score(y_test['label'].tolist(), y_pred))
+        print(classification_report(y_test['label'].tolist(), y_pred, zero_division=0))
+
+    def train_cambrian(self, n_estimators=100):
+        X_train, X_test, y_train, y_test = self.load_and_split_data()
+
+        """Drop unnecessary features"""
+        X_train = X_train.drop(columns=[f"pca_{i}" for i in range(50)] + [Field.LENGTH, 'DARK', 'LIGHT', 'PURPLE',
+                                                                          'ORANGE', 'PINK', 'VARIED', 'RED', 'GRAY'
+                                                                          'BROWN', Field.DEPTH, 'BLACK'])
+        X_test = X_test.drop(columns=[f"pca_{i}" for i in range(50)] + [Field.LENGTH])
+
+        X_train, y_train = Age.encode_age(X_train, y_train)
+        X_test, y_test = Age.encode_age(X_test, y_test)
+
+        """Filter and encode data"""
+        mask = y_train[Field.AGE] == 0
+
+        X_train = X_train[mask]
+        y_train = y_train[mask]
+
+        y_train['label'] = y_train[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
+
+        y_train.loc[y_train[Field.ORDER] == 0, 'label'] = y_train.loc[y_train[Field.ORDER] == 0, 'label'].apply(
+            lambda x : x.get_top(1) if isinstance(x, Bedrock.GeoCode) else x)
+        y_train.loc[y_train[Field.ORDER] == 1, 'label'] = y_train.loc[y_train[Field.ORDER] == 1, 'label'].apply(
+            lambda x : x.get_bot(1) if isinstance(x, Bedrock.GeoCode) else x)
+
+        mask = y_test[Field.AGE] == 0
+
+        X_test = X_test[mask]
+        y_test = y_test[mask]
+
+        y_test['label'] = y_test[Field.STRAT].map(Bedrock.BEDROCK_CODE_MAP)
+
+        y_test.loc[y_test[Field.ORDER] == 0, 'label'] = y_test.loc[y_test[Field.ORDER] == 0, 'label'].apply(
+            lambda x: x.get_top(1) if isinstance(x, Bedrock.GeoCode) else x)
+        y_test.loc[y_test[Field.ORDER] == 1, 'label'] = y_test.loc[y_test[Field.ORDER] == 1, 'label'].apply(
+            lambda x: x.get_bot(1) if isinstance(x, Bedrock.GeoCode) else x)
+
+        encoder = LabelEncoder()
+        encoder.fit(['Prairie Du Chien', 'Jordan', 'St Lawrence', 'Tunnel City', 'Wonewoc', 'Eau Claire', 'Mt Simon', None])
 
         y_train['label'] = encoder.transform(y_train[['label']])
         y_test['label'] = encoder.transform(y_test[['label']])
@@ -720,13 +904,13 @@ class GBTModel:
         )
         model.fit(X_train, y_train['label'], sample_weight=weights)
 
-        joblib.dump(model, f'{self.path}.dev.mdl')
-        joblib.dump(X_train.columns.tolist(), f'{self.path}.dev.fts')
-        self.dev_model = model
+        joblib.dump(model, f'{self.path}.cam.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.cam.fts')
+        self.cam_model = model
 
         print('EVALUATING CLASSIFIER')
 
-        y_pred = self.dev_model.predict(X_test)
+        y_pred = self.cam_model.predict(X_test)
 
         print('Accuracy: ', accuracy_score(y_test['label'].tolist(), y_pred))
         print(classification_report(y_test['label'].tolist(), y_pred, zero_division=0))
@@ -739,6 +923,8 @@ class GBTModel:
         )
 
         self.y_pred = y_pred
+        self.y_test = y_test
+        self.X_test = X_test
 
         return report['macro avg']['f1-score'], report['accuracy']
 
