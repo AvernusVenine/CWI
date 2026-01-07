@@ -521,11 +521,17 @@ class GBTModel:
 
         return X_train, X_test, y_train, y_test
 
-    def train_type(self, n_estimators=125):
+    def train_type(self, data=None, n_estimators=100, depth=4, drop=.1, eta=.3):
         """
         Differentiates between Recent and Bedrock layers
         """
-        X_train, X_test, y_train, y_test = self.load_data()
+        if data is None:
+            X_train, X_test, y_train, y_test = self.load_data()
+        else:
+            X_train = data[0]
+            X_test = data[1]
+            y_train = data[2]
+            y_test = data[3]
 
         print('BALANCING DATA SET')
 
@@ -558,21 +564,25 @@ class GBTModel:
         X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
         X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
 
+        X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=.5, random_state=self.random_state)
+
         print('TRAINING MODEL')
 
         model = xgboost.XGBClassifier(
             booster='dart',
             n_estimators=n_estimators,
-            verbosity=2,
+            max_depth=depth,
+            eta=eta,
+            verbosity=1,
             device='cuda',
 
-            rate_drop=.1,
+            rate_drop=drop,
             normalize_type='forest',
             sample_type='weighted',
 
             tree_method='hist'
         )
-        model.fit(X_train, y_train[Field.TYPE], sample_weight=weights)
+        model.fit(X_train, y_train[Field.TYPE], eval_set=[(X_val, y_val[Field.TYPE])], sample_weight=weights, verbose=True)
 
         joblib.dump(model, f'{self.path}.type.mdl')
         joblib.dump(X_train.columns.tolist(), f'{self.path}.type.fts')
@@ -594,50 +604,128 @@ class GBTModel:
 
         return report['macro avg']['f1-score'], report['accuracy']
 
-    def train_age(self, n_estimators=125):
-        """
-        Differentiates between bedrock ages
-        """
-        X_train, X_test, y_train, y_test = self.load_and_split_data()
+    def load_texture(self):
+        print("LOADING DATA SET")
 
-        X_train, y_train = Age.encode_age(X_train, y_train)
-        X_test, y_test = Age.encode_age(X_test, y_test)
+        df = Data.load('weighted.parquet')
 
-        print('BALANCING DATA SET')
-        encoder = LabelEncoder()
-        encoder.fit(Age.BEDROCK_AGE_LIST)
+        df = df.sort_values([Field.RELATEID, Field.DEPTH_TOP])
 
-        """Remove noisy/unnecessary features"""
+        df = Texture.encode_texture(df)
 
-        #TODO: This should instead k-cluster down the values to a certain percentage
-        drop_dict = {
-            'P': .25,
-            'O': .33,
-            'C': .33,
-        }
+        y = df[[Field.RELATEID, Field.STRAT, Field.LITH_PRIM, Field.TEXTURE]]
+        X = df.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM, Field.TEXTURE])
 
-        print("APPLYING WEIGHTS")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=self.random_state)
 
-        weights = X_train[Field.INTERPRETATION_METHOD].values.tolist()
+        print('FITTING PCA')
 
-        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
-        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
+        self.pca = PCA(n_components=50)
+        self.pca.fit(X_train[[f"emb_{i}" for i in range(384)]])
+
+        X_train[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X_train[[f"emb_{i}" for i in range(384)]])
+        X_test[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X_test[[f"emb_{i}" for i in range(384)]])
+
+        X_train = X_train.drop(columns=[f"emb_{i}" for i in range(384)])
+        X_test = X_test.drop(columns=[f"emb_{i}" for i in range(384)])
+
+        return X_train, X_test, y_train, y_test
+
+    def train_texture(self, data=None, n_estimators=100, depth=4, drop=.1, eta=.3):
+
+        if data is None:
+            X_train, X_test, y_train, y_test = self.load_data()
+        else:
+            X_train = data[0]
+            X_test = data[1]
+            y_train = data[2]
+            y_test = data[3]
+
+        X_train = X_train[[f"pca_{i}" for i in range(50)]]
+        X_test = X_test[[f"pca_{i}" for i in range(50)]]
+
+        X_train = X_train.astype(float)
+        X_test = X_test.astype(float)
+
+        X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=.5, random_state=self.random_state)
 
         print('TRAINING MODEL')
 
         model = xgboost.XGBClassifier(
             booster='dart',
             n_estimators=n_estimators,
-            verbosity=2,
+            max_depth=depth,
+            eta=eta,
+            verbosity=1,
             device='cuda',
 
-            rate_drop=.1,
+            rate_drop=drop,
             normalize_type='forest',
             sample_type='weighted',
 
             tree_method='hist'
         )
-        model.fit(X_train, y_train[Field.AGE], sample_weight=weights)
+        model.fit(X_train, y_train[Field.TEXTURE], eval_set=[(X_val, y_val[Field.TEXTURE])], verbose=True)
+
+        joblib.dump(model, f'{self.path}.txt.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.txt.fts')
+        self.texture_model = model
+
+        print('EVALUATING CLASSIFIER')
+
+        y_pred = self.texture_model.predict(X_test)
+
+        print('Accuracy: ', accuracy_score(y_test[Field.TEXTURE].tolist(), y_pred))
+        print(classification_report(y_test[Field.TEXTURE].tolist(), y_pred, zero_division=0))
+
+    def load_age(self):
+        X_train, X_test, y_train, y_test = self.load_and_split_data()
+
+        X_train, y_train = Age.encode_age(X_train, y_train)
+        X_test, y_test = Age.encode_age(X_test, y_test)
+
+        weights = X_train[Field.INTERPRETATION_METHOD]
+
+        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
+        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
+
+        X_train[Field.ORDER] = y_train[Field.ORDER]
+        X_test[Field.ORDER] = y_test[Field.ORDER]
+
+        return X_train, X_test, y_train, y_test, weights
+
+    def train_age(self, data=None, n_estimators=100, depth=4, drop=.1, eta=.3):
+        """
+        Differentiates between bedrock ages
+        """
+        if data is None:
+            X_train, X_test, y_train, y_test, weights = self.load_age()
+        else:
+            X_train = data[0]
+            X_test = data[1]
+            y_train = data[2]
+            y_test = data[3]
+            weights = data[4]
+
+        X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=.5, random_state=self.random_state)
+
+        print('TRAINING MODEL')
+
+        model = xgboost.XGBClassifier(
+            booster='dart',
+            n_estimators=n_estimators,
+            max_depth=depth,
+            eta=eta,
+            verbosity=1,
+            device='cuda',
+
+            rate_drop=drop,
+            normalize_type='forest',
+            sample_type='weighted',
+
+            tree_method='hist'
+        )
+        model.fit(X_train, y_train[Field.AGE], eval_set=[(X_val, y_val[Field.AGE])], sample_weight=weights)
 
         joblib.dump(model, f'{self.path}.age.mdl')
         joblib.dump(X_train.columns.tolist(), f'{self.path}.age.fts')
@@ -649,17 +737,6 @@ class GBTModel:
 
         print('Accuracy: ', accuracy_score(y_test[Field.AGE].tolist(), y_pred))
         print(classification_report(y_test[Field.AGE].tolist(), y_pred, zero_division=0))
-
-        report = classification_report(
-            y_test[Field.AGE].tolist(),
-            y_pred,
-            zero_division=0,
-            output_dict=True
-        )
-
-        self.y_pred = y_pred
-
-        return report['macro avg']['f1-score'], report['accuracy']
 
     def load_devonian(self):
         X_train, X_test, y_train, y_test = self.load_and_split_data()
@@ -716,6 +793,9 @@ class GBTModel:
 
         X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD])
         X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD])
+
+        X_train[Field.ORDER] = y_train[Field.ORDER]
+        X_test[Field.ORDER] = y_test[Field.ORDER]
 
         return X_train, X_test, y_train, y_test, weights
 
@@ -925,111 +1005,6 @@ class GBTModel:
         self.y_pred = y_pred
         self.y_test = y_test
         self.X_test = X_test
-
-        return report['macro avg']['f1-score'], report['accuracy']
-
-    def train_texture(self, n_estimators=125):
-        if self.X_train is None:
-            self.load_data()
-
-        print('BALANCING DATA SET')
-        encoder = Age.init_encoder()
-
-        X_train = self.X_train.copy()
-        y_train = self.y_train.copy()
-
-        """Only want Quaternary/Recent values for training"""
-        mask = y_train[Field.AGE].isin(encoder.transform(['Q', 'R']))
-
-        X_train = X_train[mask].reset_index(drop=True)
-        y_train = y_train[mask].reset_index(drop=True)
-
-        encoder = Texture.init_encoder()
-
-        mask = y_train[Field.TEXTURE] != -100
-
-        X_train = X_train[mask].reset_index(drop=True)
-        y_train = y_train[mask].reset_index(drop=True)
-
-        mask = y_train[Field.TEXTURE] != -1
-
-        X_train = X_train[mask].reset_index(drop=True)
-        y_train = y_train[mask].reset_index(drop=True)
-
-        """Test data filtering"""
-
-        X_test = self.X_test.copy()
-        y_test = self.y_test.copy()
-
-        mask = y_test[Field.TEXTURE] != -1
-
-        X_test = X_test[mask].reset_index(drop=True)
-        y_test = y_test[mask].reset_index(drop=True)
-
-        drop_dict = {
-            'C': .33,
-            'F': .33,
-        }
-
-        for texture, percentage in drop_dict.items():
-            mask = y_train[Field.TEXTURE] == encoder.transform([texture])[0]
-            indices = y_train[mask].index
-
-            """Necessary to recreate random conditions"""
-            np.random.seed(self.random_state)
-            kept_indices = np.random.choice(indices, size=int(len(indices) * percentage))
-
-            mask = ~mask | y_train.index.isin(kept_indices)
-
-            X_train = X_train[mask].reset_index(drop=True)
-            y_train = y_train[mask].reset_index(drop=True)
-
-        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['S'])[0], 8000, Field.TEXTURE)
-        X_train, y_train = create_shallow(X_train, y_train, encoder.transform(['I'])[0], 5000, Field.TEXTURE)
-
-        """Drop noisy/unnecessary features"""
-        X_train = X_train.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
-                                        Field.PREVIOUS_MEMBER, Field.UTME, Field.UTMN, Field.DEPTH_TOP, Field.DEPTH_BOT,
-                                        Field.ELEVATION_BOT, Field.ELEVATION_TOP] + Data.COLORS)
-        X_test = X_test.drop(columns=[Field.PREVIOUS_AGE, Field.PREVIOUS_GROUP, Field.PREVIOUS_FORMATION,
-                                        Field.PREVIOUS_MEMBER, Field.UTME, Field.UTMN, Field.DEPTH_TOP, Field.DEPTH_BOT,
-                                        Field.ELEVATION_BOT, Field.ELEVATION_TOP] + Data.COLORS)
-
-
-        print('TRAINING MODEL')
-
-        model = xgboost.XGBClassifier(
-            booster='dart',
-            n_estimators=n_estimators,
-            verbosity=1,
-            device='cuda',
-
-            rate_drop=.1,
-            normalize_type='forest',
-            sample_type='weighted',
-
-            tree_method='hist'
-        )
-        model.fit(X_train, y_train[Field.TEXTURE])
-
-        joblib.dump(model, f'{self.path}.txt.mdl')
-        joblib.dump(X_train.columns.tolist(), f'{self.path}.txt.fts')
-        self.texture_model = model
-
-        print('EVALUATING CLASSIFIER')
-
-        y_pred = self.texture_model.predict(X_test)
-
-        print('Accuracy: ', accuracy_score(y_test[Field.TEXTURE].tolist(), y_pred))
-
-        report = classification_report(
-            y_test[Field.TEXTURE].tolist(),
-            y_pred,
-            zero_division=0,
-            output_dict=True
-        )
-
-        print(classification_report(y_test[Field.TEXTURE].tolist(), y_pred, zero_division=0))
 
         return report['macro avg']['f1-score'], report['accuracy']
 

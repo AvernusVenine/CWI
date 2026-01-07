@@ -1,6 +1,3 @@
-import os
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-
 import numpy as np
 import pandas as pd
 import torch
@@ -11,7 +8,7 @@ import warnings
 
 from Data import Field
 
-TEXTURE_LIST = ['B', 'C', 'F', 'G', 'I', 'J', 'H', 'L', 'W', 'P', 'N', 'S', 'T', 'U']
+TEXTURE_LIST = ['B', 'C', 'F', 'G', 'H', 'I', 'J', 'L', 'N', 'P', 'S', 'T', 'U', 'W']
 
 def init_encoder():
     """
@@ -46,6 +43,7 @@ def encode_texture(df):
     encoder.fit(TEXTURE_LIST)
 
     df.loc[df[Field.TEXTURE].notna(), Field.TEXTURE] = encoder.transform(df.loc[df[Field.TEXTURE].notna(), Field.TEXTURE])
-    df.loc[~df[Field.TEXTURE].notna(), Field.TEXTURE] = -100
+
+    df = df.dropna(subset=[Field.TEXTURE])
 
     return df
