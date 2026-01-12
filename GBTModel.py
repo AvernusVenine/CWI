@@ -604,6 +604,126 @@ class GBTModel:
 
         return report['macro avg']['f1-score'], report['accuracy']
 
+    def load_lithology(self):
+        warnings.filterwarnings('ignore')
+
+        print("LOADING DATA SET")
+
+        df = Data.load('weighted.parquet')
+
+        df = df.sort_values([Field.RELATEID, Field.DEPTH_TOP, Field.DEPTH_BOT])
+
+        df = df[df['strat'].astype(str).str[0].isin(['R', 'Q'])]
+
+        lith_prim = df['lith_prim'].value_counts()
+        lith_prim = lith_prim[lith_prim > 20].index.tolist()
+        df = df[df['lith_prim'].isin(lith_prim)]
+
+        encoder = LabelEncoder()
+        encoder.fit(lith_prim)
+
+        df['lith_prim'] = encoder.transform(df[['lith_prim']])
+
+        df = df.drop(columns=[Field.LITH_SEC, Field.LITH_MINOR])
+
+        df[Field.THICKNESS] = df[Field.DEPTH_BOT] - df[Field.DEPTH_TOP]
+
+        y = df[[Field.RELATEID, Field.STRAT, Field.LITH_PRIM]]
+        X = df.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM])
+
+        X = utils.encode_color(X)
+        X = utils.encode_hardness(X)
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=self.random_state)
+
+        print('FITTING SCALERS')
+
+        self.utme_scaler = StandardScaler()
+        self.utme_scaler.fit(X_train[[Field.UTME]])
+
+        self.utmn_scaler = StandardScaler()
+        self.utmn_scaler.fit(X_train[[Field.UTMN]])
+
+        self.depth_scaler = StandardScaler()
+        self.depth_scaler.fit(X_train[[Field.DEPTH_TOP]].values.tolist()
+                                  + X_train[[Field.DEPTH_BOT]].values.tolist())
+
+        print('FITTING PCA')
+
+        self.pca = PCA(n_components=50)
+        self.pca.fit(X_train[[f"emb_{i}" for i in range(384)]])
+
+        joblib.dump(self.utme_scaler, f'{self.path}.utme.scl')
+        joblib.dump(self.utmn_scaler, f'{self.path}.utmn.scl')
+        joblib.dump(self.depth_scaler, f'{self.path}.depth.scl')
+        joblib.dump(self.pca, f'{self.path}.pca')
+
+        print('APPLYING DATA REFINEMENTS')
+        X_train[Field.UTME] = self.utme_scaler.transform(X_train[[Field.UTME]])
+        X_test[Field.UTME] = self.utme_scaler.transform(X_test[[Field.UTME]])
+
+        X_train[Field.UTMN] = self.utmn_scaler.transform(X_train[[Field.UTMN]])
+        X_test[Field.UTMN] = self.utmn_scaler.transform(X_test[[Field.UTMN]])
+
+        X_train[Field.DEPTH_BOT] = self.depth_scaler.transform(X_train[[Field.DEPTH_BOT]])
+        X_test[Field.DEPTH_BOT] = self.depth_scaler.transform(X_test[[Field.DEPTH_BOT]])
+
+        X_train[Field.DEPTH_TOP] = self.depth_scaler.transform(X_train[[Field.DEPTH_TOP]])
+        X_test[Field.DEPTH_TOP] = self.depth_scaler.transform(X_test[[Field.DEPTH_TOP]])
+
+        X_train[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X_train[[f"emb_{i}" for i in range(384)]])
+        X_test[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X_test[[f"emb_{i}" for i in range(384)]])
+
+        X_train = X_train.drop(columns=[f"emb_{i}" for i in range(384)])
+        X_test = X_test.drop(columns=[f"emb_{i}" for i in range(384)])
+
+        return X_train, X_test, y_train, y_test, encoder
+
+    def train_lithology(self, data=None, n_estimators=100, depth=4, drop=.1, eta=.3):
+
+        if data is None:
+            X_train, X_test, y_train, y_test, encoder = self.load_lithology()
+        else:
+            X_train = data[0]
+            X_test = data[1]
+            y_train = data[2]
+            y_test = data[3]
+            encoder = data[4]
+
+        X_train = X_train.drop(columns=[Field.INTERPRETATION_METHOD, Field.UTME, Field.DEPTH_BOT, Field.UTMN] + Data.COLORS)
+        X_test = X_test.drop(columns=[Field.INTERPRETATION_METHOD, Field.UTME, Field.DEPTH_BOT, Field.UTMN] + Data.COLORS)
+
+        X_val, X_test, y_val, y_test = train_test_split(X_test, y_test, test_size=.5, random_state=self.random_state)
+
+        print('TRAINING MODEL')
+
+        model = xgboost.XGBClassifier(
+            booster='dart',
+            n_estimators=n_estimators,
+            max_depth=depth,
+            eta=eta,
+            verbosity=1,
+            device='cuda',
+
+            rate_drop=drop,
+            normalize_type='forest',
+            sample_type='weighted',
+
+            tree_method='hist'
+        )
+        model.fit(X_train, y_train[Field.LITH_PRIM], eval_set=[(X_val, y_val[Field.LITH_PRIM])], verbose=True)
+
+        joblib.dump(model, f'{self.path}.ltp.mdl')
+        joblib.dump(X_train.columns.tolist(), f'{self.path}.ltp.fts')
+        self.lith_prim_model = model
+
+        print('EVALUATING CLASSIFIER')
+
+        y_pred = self.lith_prim_model.predict(X_test)
+
+        print('Accuracy: ', accuracy_score(y_test[Field.LITH_PRIM].tolist(), y_pred))
+        print(classification_report(encoder.inverse_transform(y_test[Field.LITH_PRIM].tolist()), encoder.inverse_transform(y_pred), zero_division=0))
+
     def load_texture(self):
         print("LOADING DATA SET")
 
@@ -679,7 +799,78 @@ class GBTModel:
         print(classification_report(y_test[Field.TEXTURE].tolist(), y_pred, zero_division=0))
 
     def load_age(self):
-        X_train, X_test, y_train, y_test = self.load_and_split_data()
+        print("LOADING DATA SET")
+
+        df = Data.load('weighted.parquet')
+
+        print('ENCODING DATA')
+        df = utils.encode_color(df)
+        df = utils.encode_hardness(df)
+        df = utils.encode_weights(df)
+
+        df[Field.LENGTH] = df[Field.DEPTH_BOT] - df[Field.DEPTH_TOP]
+
+        df_top = df.drop(columns=[Field.DEPTH_BOT]).rename(columns={Field.DEPTH_TOP: Field.DEPTH})
+        df_top[Field.ORDER] = 0
+        df_bot = df.drop(columns=[Field.DEPTH_TOP]).rename(columns={Field.DEPTH_BOT: Field.DEPTH})
+        df_bot[Field.ORDER] = 1
+
+        df = pd.concat([df_top, df_bot])
+
+        df = df.sort_values([Field.RELATEID, Field.DEPTH, Field.ORDER])
+        df = df[df[Field.STRAT] != 'BSMT']
+        self.df = df
+
+        y = df[[Field.RELATEID, Field.STRAT, Field.LITH_PRIM, Field.ORDER]]
+        X = df.drop(columns=[Field.STRAT, Field.RELATEID, Field.LITH_PRIM, Field.ORDER])
+
+        X[Field.UTME] = X[Field.UTME].fillna(X[Field.UTME].min() * .9)
+        X[Field.UTMN] = X[Field.UTMN].fillna(X[Field.UTMN].min() * .9)
+        X[Field.ELEVATION] = X[Field.ELEVATION].fillna(X[Field.ELEVATION].min() * .8)
+        X[Field.DEPTH] = X[Field.DEPTH].fillna(-25)
+
+        """Create a depth based elevation feature to replace elevation"""
+        X[Field.ELEVATION] = X[Field.ELEVATION] - X[Field.DEPTH]
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=self.random_state)
+
+        print('FITTING SCALERS')
+
+        self.utme_scaler = StandardScaler()
+        self.utme_scaler.fit(X_train[[Field.UTME]])
+
+        self.utmn_scaler = StandardScaler()
+        self.utmn_scaler.fit(X_train[[Field.UTMN]])
+
+        self.elevation_scaler = StandardScaler()
+        self.elevation_scaler.fit(X_train[[Field.ELEVATION]].values.tolist())
+
+        self.depth_scaler = StandardScaler()
+        self.depth_scaler.fit(X_train[[Field.DEPTH]].values.tolist())
+
+        print('FITTING PCA')
+
+        self.pca = PCA(n_components=50)
+        self.pca.fit(X_train[[f"emb_{i}" for i in range(384)]])
+
+        joblib.dump(self.utme_scaler, f'{self.path}.utme.scl')
+        joblib.dump(self.utmn_scaler, f'{self.path}.utmn.scl')
+        joblib.dump(self.elevation_scaler, f'{self.path}.elevation.scl')
+        joblib.dump(self.depth_scaler, f'{self.path}.depth.scl')
+        joblib.dump(self.pca, f'{self.path}.pca')
+
+        print('APPLYING DATA REFINEMENTS')
+        X[Field.UTME] = self.utme_scaler.transform(X[[Field.UTME]])
+        X[Field.UTMN] = self.utmn_scaler.transform(X[[Field.UTMN]])
+        X[Field.ELEVATION] = self.elevation_scaler.transform(X[[Field.ELEVATION]])
+        X[Field.DEPTH] = self.depth_scaler.transform(X[[Field.DEPTH]])
+
+        X[[f"pca_{i}" for i in range(50)]] = self.pca.transform(X[[f"emb_{i}" for i in range(384)]])
+        X = X.drop(columns=[f"emb_{i}" for i in range(384)])
+
+        X = X.astype(float)
+
+        X[Field.PREVIOUS_AGE] = y.groupby(df[Field.RELATEID])[Field.AGE].shift(-1).fillna(-1)
 
         X_train, y_train = Age.encode_age(X_train, y_train)
         X_test, y_test = Age.encode_age(X_test, y_test)

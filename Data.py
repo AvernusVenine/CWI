@@ -20,6 +20,7 @@ COLORS = ['BLACK', 'BROWN', 'BLUE', 'GREEN', 'ORANGE', 'PINK', 'PURPLE', 'RED', 
 
 class Field:
     LENGTH = 'length'
+    THICKNESS = 'thickness'
     ORDER = 'order'
     UTME = 'utme'
     UTMN = 'utmn'
@@ -38,6 +39,8 @@ class Field:
     DRILLER_DESCRIPTION = 'drllr_desc'
     TEXTURE = 'texture'
     LITH_PRIM = 'lith_prim'
+    LITH_SEC = 'lith_sec'
+    LITH_MINOR = 'lith_minor'
     PREVIOUS_AGE = 'prev_age'
     PREVIOUS_TEXTURE = 'prev_text'
     GROUP = 'group'

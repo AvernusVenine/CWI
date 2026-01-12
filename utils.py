@@ -308,10 +308,10 @@ def sequence_layers(df):
 
     return X, y
 
-def plot_features(path, importance_type='gain'):
+def plot_features(path, importance_type='gain', max_features=15):
     model = joblib.load(path)
 
-    plot_importance(model, importance_type=importance_type)
+    plot_importance(model, importance_type=importance_type, max_num_features=max_features)
     plt.savefig('feature_importance.png')
     plt.close()
 
