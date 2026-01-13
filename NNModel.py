@@ -18,12 +18,13 @@ class StratDataset(Dataset):
         self.X = torch.from_numpy(X.values).float()
         self.y = torch.from_numpy(y[Field.STRAT].values).long()
         self.thickness = torch.from_numpy(y[Field.THICKNESS].values).float()
+        self.weights = torch.from_numpy(y[Field.INTERPRETATION_METHOD].values).float()
 
     def __len__(self):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return self.X[idx], self.y[idx], self.thickness[idx]
+        return self.X[idx], self.y[idx], self.thickness[idx], self.weights[idx]
 
 class IntervalNeuralNetwork(nn.Module):
 
@@ -48,7 +49,7 @@ class IntervalIntegratedLoss(nn.Module):
         self.num = num
         self.lam = lam
 
-    def forward(self, model, depth_top, depth_bot, X, y, t, device):
+    def forward(self, model, depth_top, depth_bot, X, y, t, w, device):
         batch_size = X.shape[0]
 
         alphas = torch.linspace(0, 1, self.num, device=device).view(1, self.num)
@@ -66,20 +67,18 @@ class IntervalIntegratedLoss(nn.Module):
         logits = model(X)
         logits = logits.view(batch_size, self.num, 6)
 
-        interval_width = (depth_bot - depth_top) / (self.num - 1)
-
         weights = torch.ones(self.num, device=device)
         weights[0] = .5
         weights[-1] = .5
         weights = weights.view(1, self.num, 1)
 
-        logits = (logits * weights).sum(dim=1) * interval_width.view(batch_size, 1)
+        logits = (logits * weights).sum(dim=1) / weights.sum()
         logits = logits / t.view(batch_size, 1)
 
         y = y.long()
         loss = F.cross_entropy(logits, y, reduction='none')
 
-        loss = loss * (1 / t)**self.lam
+        loss = w * loss * (1 / t)**self.lam
 
         return loss.mean()
 
@@ -129,13 +128,31 @@ def load_data():
         'CECR' : 'Eau Claire',
         'CTMZ' : 'Tunnel City'
     })
+    df[Field.INTERPRETATION_METHOD] = df[Field.INTERPRETATION_METHOD].replace({
+        'A': .1,
+        'B': 1,
+        'C': 1,
+        'D': .1,
+        'E': 1,
+        'F': 1,
+        'G': 1,
+        'H': 1,
+        'N': .1,
+        'O': .1,
+        'P': .1,
+        'Q': .1,
+        'R' : .1,
+        'U': .1,
+        'X': .1,
+        'Z': .1,
+    })
 
     encoder = LabelEncoder()
     df[Field.STRAT] = encoder.fit_transform(df[Field.STRAT])
     joblib.dump(encoder, 'nn/strat.enc')
 
     X = df[[Field.ELEVATION_TOP, Field.ELEVATION_BOT, Field.UTME, Field.UTMN]]
-    y = df[[Field.STRAT, Field.THICKNESS]]
+    y = df[[Field.STRAT, Field.THICKNESS, Field.INTERPRETATION_METHOD]]
 
     data = StratDataset(X, y)
 
@@ -170,12 +187,12 @@ def train_model(data=None, max_epochs=15, lr=1e-3, lam=0.0):
         model.train()
 
         train_loss = 0
-        for X, y, t in train_loader:
+        for X, y, t, w in train_loader:
             X = X.to(device)
             y = y.to(device)
             t = t.to(device)
 
-            loss = loss_func(model, X[:, 0], X[:, 1], X, y, t, device)
+            loss = loss_func(model, X[:, 0], X[:, 1], X, y, t, w, device)
 
             optimizer.zero_grad()
             loss.backward()
@@ -189,12 +206,12 @@ def train_model(data=None, max_epochs=15, lr=1e-3, lam=0.0):
 
         test_loss = 0
         with torch.no_grad():
-            for X, y, t in test_loader:
+            for X, y, t, w in test_loader:
                 X = X.to(device)
                 y = y.to(device)
                 t = t.to(device)
 
-                loss = loss_func(model, X[:, 0], X[:, 1], X, y, t, device)
+                loss = loss_func(model, X[:, 0], X[:, 1], X, y, t, w, device)
 
                 test_loss += loss.item()
 
