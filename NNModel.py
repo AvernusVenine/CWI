@@ -3,11 +3,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
-from torch.utils.data import DataLoader, random_split, Dataset
+from torch.utils.data import DataLoader, random_split, Dataset, WeightedRandomSampler
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 import joblib
 import matplotlib.pyplot as plt
 import warnings
+import pandas as pd
+from sklearn.model_selection import train_test_split
 
 import Data
 from Data import Field
@@ -28,26 +30,33 @@ class StratDataset(Dataset):
 
 class IntervalNeuralNetwork(nn.Module):
 
+    NUM_CLASSES = 18
+
     def __init__(self):
         super().__init__()
 
-        self.linear1 = nn.Linear(3, 128)
-        self.linear2 = nn.Linear(128, 128)
-        self.linear3 = nn.Linear(128, 6)
+        self.linear1 = nn.Linear(3, 256)
+        self.linear2 = nn.Linear(256, 128)
+        self.linear3 = nn.Linear(128, 64)
+        self.linear4 = nn.Linear(64, self.NUM_CLASSES)
 
     def forward(self, X):
         X = F.relu(self.linear1(X))
         X = F.relu(self.linear2(X))
-        X = self.linear3(X)
+        X = F.relu(self.linear3(X))
+        X = self.linear4(X)
 
         return X
 
 class IntervalIntegratedLoss(nn.Module):
 
-    def __init__(self, num=50, lam=.9):
+    NUM_CLASSES = 18
+
+    def __init__(self, num=50, lam=.9, omega=2):
         super().__init__()
         self.num = num
         self.lam = lam
+        self.omega = omega
 
     def forward(self, model, depth_top, depth_bot, X, y, t, w, device):
         batch_size = X.shape[0]
@@ -65,12 +74,16 @@ class IntervalIntegratedLoss(nn.Module):
         X = X.view(batch_size * self.num, 3)
 
         logits = model(X)
-        logits = logits.view(batch_size, self.num, 6)
+        logits = logits.view(batch_size, self.num, self.NUM_CLASSES)
 
         weights = torch.ones(self.num, device=device)
         weights[0] = .5
         weights[-1] = .5
         weights = weights.view(1, self.num, 1)
+
+        centers = (depth_bot_expanded - depth_top_expanded) / 2.0
+        dist = depths_expanded - centers
+        dist = 2 * dist.abs()
 
         logits = (logits * weights).sum(dim=1) / weights.sum()
         logits = logits / t.view(batch_size, 1)
@@ -78,20 +91,55 @@ class IntervalIntegratedLoss(nn.Module):
         y = y.long()
         loss = F.cross_entropy(logits, y, reduction='none')
 
+        """Layer thickness normalization"""
         loss = w * loss * (1 / t)**self.lam
 
         return loss.mean()
 
 def load_data():
+    warnings.filterwarnings('ignore')
+
     print('Loading Dataset')
     df = Data.load('weighted.parquet')
+    raw = Data.load_well_raw()
 
-    valid_codes = ['CJDN', 'CTCG', 'CSTL', 'CWOC', 'CMTS', 'CTLR', 'CECR', 'CTMZ']
+    df[Field.COUNTY] = df[Field.RELATEID].map(raw.set_index(Field.RELATEID)[Field.COUNTY])
+    df = df[df[Field.COUNTY] == 50]
+
+    valid_codes = {
+        'DCVL' : 'Lower Cedar',
+        'DCVU' : 'Upper Cedar',
+        'DSPL' : 'Wapsipinicon',
+        'DWPR' : 'Wapsipinicon',
+        'OPDC' : 'Prairie Du Chien',
+        'OSTP' : 'St Peter Sandstone',
+        'OPVL' : 'Platteville',
+        'OGWD' : 'Glenwood',
+        'ODCR' : 'Decorah Shale',
+        'OPOD' : 'Prairie Du Chien',
+        'OGCM' : 'Galena',
+        'OPSH' : 'Prairie Du Chien',
+        'OPGW' : 'Platteville',
+        'OGSC' : 'Galena',
+        'OGSV' : 'Galena',
+        'OMAQ' : 'Maquoketa',
+        'OGPR' : 'Galena',
+        'OGPC' : 'Galena',
+        'OPWR' : 'Prairie Du Chien',
+        'OGVP' : 'Galena',
+        'ODUB' : 'Galena',
+        'CJDN' : 'Jordan Sandstone',
+        'CTCG' : 'Tunnel City',
+        'CSTL' : 'St Lawrence',
+        'CWOC' : 'Wonewoc',
+        'CMTS' : 'Mt Simon',
+        'CTLR' : 'Tunnel City',
+        'CECR' : 'Eau Claire',
+        'CTMZ' : 'Tunnel City'
+    }
 
     df = df.sort_values([Field.RELATEID, Field.DEPTH_TOP, Field.DEPTH_BOT])
-    df = df[df[Field.STRAT].isin(valid_codes)]
-
-    df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN])
+    df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN, Field.ELEVATION])
 
     df[Field.THICKNESS] = df[Field.DEPTH_BOT] - df[Field.DEPTH_TOP]
 
@@ -118,34 +166,39 @@ def load_data():
     df[Field.ELEVATION_BOT] = elevation_scaler.transform(df[[Field.ELEVATION_BOT]])
     joblib.dump(elevation_scaler, 'nn/elevation.scl')
 
-    df[Field.STRAT] = df[Field.STRAT].replace({
-        'CJDN' : 'Jordan Sandstone',
-        'CTCG' : 'Tunnel City',
-        'CSTL' : 'St Lawrence',
-        'CWOC' : 'Wonewoc',
-        'CMTS' : 'Mt Simon',
-        'CTLR' : 'Tunnel City',
-        'CECR' : 'Eau Claire',
-        'CTMZ' : 'Tunnel City'
-    })
     df[Field.INTERPRETATION_METHOD] = df[Field.INTERPRETATION_METHOD].replace({
-        'A': .1,
-        'B': 1,
-        'C': 1,
-        'D': .1,
-        'E': 1,
-        'F': 1,
-        'G': 1,
-        'H': 1,
-        'N': .1,
-        'O': .1,
-        'P': .1,
-        'Q': .1,
-        'R' : .1,
-        'U': .1,
-        'X': .1,
-        'Z': .1,
-    })
+        'A': .5,
+        'B': 10,
+        'C': 10,
+        'D': .5,
+        'E': 10,
+        'F': 10,
+        'G': 10,
+        'H': 10,
+        'N': .5,
+        'O': .5,
+        'P': .5,
+        'Q': .5,
+        'R' : .5,
+        'U': .5,
+        'X': .5,
+        'Z': .5,
+    }).fillna(.1)
+
+    df[Field.INTERPRETATION_METHOD] = 1
+
+    qdf = df[df[Field.STRAT].astype(str).str[0].isin(['Q', 'R', 'W'])]
+    qdf[Field.STRAT] = 'Quaternary'
+
+    pdf = df[df[Field.STRAT].astype(str).str[0].isin(['P'])]
+    pdf = pdf[pdf[Field.STRAT] != 'PUDF']
+    pdf[Field.STRAT] = 'Precambrian'
+
+    df = df[df[Field.STRAT].isin(list(valid_codes.keys()))]
+
+    df[Field.STRAT] = df[Field.STRAT].replace(valid_codes)
+
+    df = pd.concat([df, qdf])
 
     encoder = LabelEncoder()
     df[Field.STRAT] = encoder.fit_transform(df[Field.STRAT])
@@ -154,22 +207,30 @@ def load_data():
     X = df[[Field.ELEVATION_TOP, Field.ELEVATION_BOT, Field.UTME, Field.UTMN]]
     y = df[[Field.STRAT, Field.THICKNESS, Field.INTERPRETATION_METHOD]]
 
-    data = StratDataset(X, y)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.2)
 
-    train_size = int(.8 * len(data))
-    train, test = random_split(data, [train_size, len(data) - train_size])
+    count = y_train[Field.STRAT].value_counts()
+    weights = [(1/count[i])**.25 for i in y_train[Field.STRAT].values]
 
-    return train, test
+    sampler = WeightedRandomSampler(weights=weights, num_samples=int(len(y_train)), replacement=True)
+
+    y_test = y_test[y_test[Field.STRAT] == encoder.transform(['Quaternary'])[0]].sample(int(len(y_test) * .1))
+    X_test = X_test.loc[y_test.index]
+
+    train = StratDataset(X_train, y_train)
+    test = StratDataset(X_test, y_test)
+
+    train_loader = DataLoader(train, batch_size=2048, sampler=sampler)
+    test_loader = DataLoader(test, batch_size=2048)
+
+    return train_loader, test_loader
 
 def train_model(data=None, max_epochs=15, lr=1e-3, lam=0.0):
     if data is None:
-        train, test = load_data()
+        train_loader, test_loader = load_data()
     else:
-        train = data[0]
-        test = data[1]
-
-    train_loader = DataLoader(train, batch_size=256, shuffle=True)
-    test_loader = DataLoader(test, batch_size=256, shuffle=True)
+        train_loader = data[0]
+        test_loader = data[1]
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -259,15 +320,12 @@ def test_borehole(utme, utmn, elevation, depth_top, depth_bot):
 
     labels = encoder.inverse_transform(labels)
 
-    # Create figure
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 10))
 
-    # Setup colors
     unique_labels = encoder.classes_
-    colors = plt.cm.tab10(range(len(unique_labels)))
+    colors = plt.cm.tab20(range(len(unique_labels)))
     color_map = {label: colors[i] for i, label in enumerate(unique_labels)}
 
-    # Plot stratigraphy - simple approach
     for i in range(len(depths)):
         ax1.barh(
             y=depths[i],
@@ -277,20 +335,18 @@ def test_borehole(utme, utmn, elevation, depth_top, depth_bot):
             edgecolor='none'
         )
 
-    # Add legend with unique labels only
     handles = [plt.Rectangle((0, 0), 1, 1, color=color_map[label]) for label in unique_labels]
     ax1.legend(handles, unique_labels, loc='upper right', fontsize=10)
 
-    ax1.set_ylabel('Depth (m)', fontsize=12)
+    ax1.set_ylabel('Elevation', fontsize=12)
     ax1.set_title('Predicted Stratigraphy', fontsize=14, fontweight='bold')
     ax1.set_xlim(0, 1)
     ax1.set_xticks([])
 
-    # Plot confidence
     ax2.plot(probs, depths, linewidth=2, color='darkblue')
     ax2.fill_betweenx(depths, 0, probs, alpha=0.3, color='lightblue')
     ax2.set_xlabel('Prediction Confidence', fontsize=12)
-    ax2.set_ylabel('Depth (m)', fontsize=12)
+    ax2.set_ylabel('Elevation', fontsize=12)
     ax2.set_title('Model Confidence', fontsize=14, fontweight='bold')
     ax2.set_xlim(0, 1)
     ax2.grid(alpha=0.3)
@@ -301,14 +357,30 @@ def test_borehole(utme, utmn, elevation, depth_top, depth_bot):
     plt.savefig('borehole.png')
 
 def cross_section_utmn(utme_min, utme_max, elevation_min, elevation_max, utmn, count=1000):
+    encoder = joblib.load('nn/strat.enc')
 
-    utme_scaler = joblib.load('nn/utme.scl')
-    utmn_scaler = joblib.load('nn/utmn.scl')
-    elevation_scaler = joblib.load('nn/elevation.scl')
+    total_depths = []
+    total_labels = []
+    total_probs = []
 
-    encoder = LabelEncoder()
-    encoder.fit(['Jordan Sandstone', 'Tunnel City', 'St Lawrence', 'Wonewoc', 'Mt Simon', 'Eau Claire'])
+    for utme in range(utme_min, utme_max, int((utme_max-utme_min)/count)):
 
+        depths = []
+        labels = []
+        probs = []
 
+        for elevation in range(elevation_min, elevation_max):
+
+            output = test_model(utme, utmn, 0, elevation)
+
+            depths.append(elevation)
+            labels.append(output.argmax().item())
+            probs.append(output.max().item())
+
+        labels = encoder.inverse_transform(labels)
+
+        total_depths.append(depths)
+        total_labels.append(labels)
+        total_probs.append(probs)
 
     pass
