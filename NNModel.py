@@ -13,6 +13,7 @@ from sklearn.model_selection import train_test_split
 
 import Data
 from Data import Field
+from SignedDistanceFunction import SignedDistanceFunction
 
 class StratDataset(Dataset):
 
@@ -48,6 +49,35 @@ class IntervalNeuralNetwork(nn.Module):
 
         return X
 
+class SignedDirectionFieldLoss(nn.Module):
+
+    NUM_CLASSES = 18
+
+    def __init__(self, sdf, num=50):
+        super().__init__()
+        self.sdf = sdf
+        self.num = num
+
+    def forward(self, model, depth_top, depth_bot, X, y, t, w, device):
+        batch_size = X.shape[0]
+
+        alphas = torch.linspace(0, 1, self.num, device=device).view(1, self.num)
+        depth_top_expanded = depth_top.view(batch_size, 1)
+        depth_bot_expanded = depth_bot.view(batch_size, 1)
+
+        depths = depth_top_expanded + alphas * (depth_bot_expanded - depth_top_expanded)
+
+        spatial = X[:, 2:].unsqueeze(1).expand(-1, self.num, -1)
+
+        depths_expanded = depths.unsqueeze(2)
+        X = torch.cat([depths_expanded, spatial], dim=2)
+        X = X.view(batch_size * self.num, 3)
+
+        output = model(X)
+
+
+
+
 class IntervalIntegratedLoss(nn.Module):
 
     NUM_CLASSES = 18
@@ -81,10 +111,6 @@ class IntervalIntegratedLoss(nn.Module):
         weights[-1] = .5
         weights = weights.view(1, self.num, 1)
 
-        centers = (depth_bot_expanded - depth_top_expanded) / 2.0
-        dist = depths_expanded - centers
-        dist = 2 * dist.abs()
-
         logits = (logits * weights).sum(dim=1) / weights.sum()
         logits = logits / t.view(batch_size, 1)
 
@@ -95,6 +121,57 @@ class IntervalIntegratedLoss(nn.Module):
         loss = w * loss * (1 / t)**self.lam
 
         return loss.mean()
+
+def condense_layers(df):
+    df = df.sort_values([Field.RELATEID, Field.ELEVATION_TOP, Field.ELEVATION_BOT], ascending=[True, False, True])
+    new_df = pd.DataFrame(columns=df.columns)
+
+    for _, hole in df.groupby(Field.RELATEID):
+        strat = None
+        elevation_top = 0
+        elevation_bot = 0
+
+        relateid = 0
+        utme = 0
+        utmn = 0
+
+        for _, row in hole.iterrows():
+            if row[Field.STRAT] == strat and row[Field.ELEVATION_TOP] == elevation_bot:
+                elevation_bot = row[Field.ELEVATION_BOT]
+            elif strat is None:
+                elevation_top = row[Field.ELEVATION_TOP]
+                elevation_bot = row[Field.ELEVATION_BOT]
+                strat = row[Field.STRAT]
+
+                relateid = row[Field.RELATEID]
+                utme = row[Field.UTME]
+                utmn = row[Field.UTMN]
+            else:
+                section = pd.DataFrame({
+                    Field.RELATEID : [relateid],
+                    Field.UTME : [utme],
+                    Field.UTMN : [utmn],
+                    Field.ELEVATION_TOP : [elevation_top],
+                    Field.ELEVATION_BOT : [elevation_bot],
+                    Field.STRAT : [strat]
+                })
+                new_df = pd.concat([new_df, section])
+
+                elevation_top = row[Field.ELEVATION_TOP]
+                elevation_bot = row[Field.ELEVATION_BOT]
+                strat = row[Field.STRAT]
+
+        section = pd.DataFrame({
+            Field.RELATEID: [relateid],
+            Field.UTME: [utme],
+            Field.UTMN: [utmn],
+            Field.ELEVATION_TOP: [elevation_top],
+            Field.ELEVATION_BOT: [elevation_bot],
+            Field.STRAT: [strat]
+        })
+        new_df = pd.concat([new_df, section])
+
+    return new_df
 
 def load_data():
     warnings.filterwarnings('ignore')
@@ -138,33 +215,23 @@ def load_data():
         'CTMZ' : 'Tunnel City'
     }
 
-    df = df.sort_values([Field.RELATEID, Field.DEPTH_TOP, Field.DEPTH_BOT])
     df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN, Field.ELEVATION])
 
-    df[Field.THICKNESS] = df[Field.DEPTH_BOT] - df[Field.DEPTH_TOP]
+    qdf = df[df[Field.STRAT].astype(str).str[0].isin(['Q', 'R', 'W'])]
+    qdf[Field.STRAT] = 'Quaternary'
 
-    df = df[df[Field.THICKNESS] > 0.0]
+    pdf = df[df[Field.STRAT].astype(str).str[0].isin(['P'])]
+    pdf = pdf[pdf[Field.STRAT] != 'PUDF']
+    pdf[Field.STRAT] = 'Precambrian'
+
+    df = df[df[Field.STRAT].isin(list(valid_codes.keys()))]
+
+    df[Field.STRAT] = df[Field.STRAT].replace(valid_codes)
+
+    df = pd.concat([df, qdf])
 
     df[Field.ELEVATION_TOP] = df[Field.ELEVATION] - df[Field.DEPTH_TOP]
     df[Field.ELEVATION_BOT] = df[Field.ELEVATION] - df[Field.DEPTH_BOT]
-
-    utme_scaler = StandardScaler()
-    df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]])
-    joblib.dump(utme_scaler, 'nn/utme.scl')
-
-    utmn_scaler = StandardScaler()
-    df[Field.UTMN] = utmn_scaler.fit_transform(df[[Field.UTMN]])
-    joblib.dump(utmn_scaler, 'nn/utmn.scl')
-
-    elevation_scaler = StandardScaler()
-    combined_elevations = np.concatenate([
-        df[Field.ELEVATION_TOP].values.reshape(-1, 1),
-        df[Field.ELEVATION_BOT].values.reshape(-1, 1)
-    ], axis=0)
-    elevation_scaler.fit(combined_elevations)
-    df[Field.ELEVATION_TOP] = elevation_scaler.transform(df[[Field.ELEVATION_TOP]])
-    df[Field.ELEVATION_BOT] = elevation_scaler.transform(df[[Field.ELEVATION_BOT]])
-    joblib.dump(elevation_scaler, 'nn/elevation.scl')
 
     df[Field.INTERPRETATION_METHOD] = df[Field.INTERPRETATION_METHOD].replace({
         'A': .5,
@@ -184,25 +251,46 @@ def load_data():
         'X': .5,
         'Z': .5,
     }).fillna(.1)
-
+    """Remove after testing"""
     df[Field.INTERPRETATION_METHOD] = 1
 
-    qdf = df[df[Field.STRAT].astype(str).str[0].isin(['Q', 'R', 'W'])]
-    qdf[Field.STRAT] = 'Quaternary'
+    df = df[[Field.RELATEID, Field.STRAT, Field.UTME, Field.UTMN, Field.ELEVATION_TOP, Field.ELEVATION_BOT]]
 
-    pdf = df[df[Field.STRAT].astype(str).str[0].isin(['P'])]
-    pdf = pdf[pdf[Field.STRAT] != 'PUDF']
-    pdf[Field.STRAT] = 'Precambrian'
+    df = condense_layers(df)
 
-    df = df[df[Field.STRAT].isin(list(valid_codes.keys()))]
+    df[Field.THICKNESS] = df[Field.ELEVATION_TOP] - df[Field.ELEVATION_BOT]
 
-    df[Field.STRAT] = df[Field.STRAT].replace(valid_codes)
-
-    df = pd.concat([df, qdf])
+    df = df[df[Field.THICKNESS] > 0.0]
 
     encoder = LabelEncoder()
     df[Field.STRAT] = encoder.fit_transform(df[Field.STRAT])
     joblib.dump(encoder, 'nn/strat.enc')
+
+    count = df[Field.STRAT].value_counts()
+    df = df[df[Field.STRAT].isin(count[count > 10].index)]
+
+    sdf = SignedDistanceFunction(df)
+
+    utme_scaler = StandardScaler()
+    df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]])
+    joblib.dump(utme_scaler, 'nn/utme.scl')
+
+    utmn_scaler = StandardScaler()
+    df[Field.UTMN] = utmn_scaler.fit_transform(df[[Field.UTMN]])
+    joblib.dump(utmn_scaler, 'nn/utmn.scl')
+
+    elevation_scaler = StandardScaler()
+    combined_elevations = np.concatenate([
+        df[Field.ELEVATION_TOP].values.reshape(-1, 1),
+        df[Field.ELEVATION_BOT].values.reshape(-1, 1)
+    ], axis=0)
+    elevation_scaler.fit(combined_elevations)
+    df[Field.ELEVATION_TOP] = elevation_scaler.transform(df[[Field.ELEVATION_TOP]])
+    df[Field.ELEVATION_BOT] = elevation_scaler.transform(df[[Field.ELEVATION_BOT]])
+    joblib.dump(elevation_scaler, 'nn/elevation.scl')
+
+    """Remove later"""
+    df[Field.INTERPRETATION_METHOD] = 1
 
     X = df[[Field.ELEVATION_TOP, Field.ELEVATION_BOT, Field.UTME, Field.UTMN]]
     y = df[[Field.STRAT, Field.THICKNESS, Field.INTERPRETATION_METHOD]]
@@ -214,23 +302,21 @@ def load_data():
 
     sampler = WeightedRandomSampler(weights=weights, num_samples=int(len(y_train)), replacement=True)
 
-    y_test = y_test[y_test[Field.STRAT] == encoder.transform(['Quaternary'])[0]].sample(int(len(y_test) * .1))
-    X_test = X_test.loc[y_test.index]
-
     train = StratDataset(X_train, y_train)
     test = StratDataset(X_test, y_test)
 
     train_loader = DataLoader(train, batch_size=2048, sampler=sampler)
     test_loader = DataLoader(test, batch_size=2048)
 
-    return train_loader, test_loader
+    return train_loader, test_loader, sdf
 
 def train_model(data=None, max_epochs=15, lr=1e-3, lam=0.0):
     if data is None:
-        train_loader, test_loader = load_data()
+        train_loader, test_loader, sdf = load_data()
     else:
         train_loader = data[0]
         test_loader = data[1]
+        sdf = data[2]
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -238,7 +324,7 @@ def train_model(data=None, max_epochs=15, lr=1e-3, lam=0.0):
     model.to(device)
 
     optimizer = Adam(model.parameters(), lr=lr)
-    loss_func = IntervalIntegratedLoss(lam=lam)
+    loss_func = SignedDirectionFieldLoss(sdf=sdf)
 
     best_loss = np.inf
 

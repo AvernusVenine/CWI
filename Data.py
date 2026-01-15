@@ -57,6 +57,7 @@ class Field:
     PREVIOUS_MEMBER = 'prev_member'
     INTERPRETATION_METHOD = 'strat_mc'
     COUNTY = 'county_c'
+    SDF = 'sdf'
 
 def load_raw():
     return pd.read_csv(f'{config.RAW_DATA_PATH}/c5st.csv', low_memory=False, on_bad_lines='skip')
