@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from scipy.ndimage import distance_transform_edt
+import torch
 
 import Data, utils
 from Data import Field
@@ -40,19 +40,29 @@ class SignedDistanceFunction:
     def compute_signed_distance(self, utme, utmn, elevation, label):
         utme_idx = int((utme - self.utme_min) / self.utm_size)
         utmn_idx = int((utmn - self.utmn_min) / self.utm_size)
-        elevation = int(elevation)
-
-        inside = (self.field[utme_idx, utmn_idx, elevation] == label)
 
         column = self.field[utme_idx, utmn_idx, :]
         label_elevations = np.where(column == label)[0]
 
+        if label_elevations is None:
+            return -np.inf
+
         label_bottom = label_elevations.min()
         label_top = label_elevations.max()
 
+        inside = (label_bottom <= elevation <= label_top + 1)
+
         bot_dist = abs(elevation - label_bottom)
-        top_dist = abs(elevation - label_top)
+        top_dist = abs(elevation - (label_top + 1))
 
         min_dist = min(bot_dist, top_dist)
 
         return min_dist if inside else -min_dist
+
+    def compute_all(self, utme, utmn, elevation, max_label):
+        y = []
+
+        for idx in range(max_label):
+            y.append(self.compute_signed_distance(utme, utmn, elevation, idx))
+
+        return y
