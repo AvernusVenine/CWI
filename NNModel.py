@@ -241,6 +241,8 @@ def load_data():
     count = df[Field.STRAT].value_counts()
     df = df[df[Field.STRAT].isin(count[count > 10].index)]
 
+    return df
+
     """Split the dataset by entire wells instead of by individual layers"""
     relateids = list(set(df[Field.RELATEID].values))
     random.shuffle(relateids)
