@@ -8,81 +8,84 @@ from Data import Field
 
 class SignedDistanceFunction:
 
-    def __init__(self, df):
-        self.field = None
+    def __init__(self, df, max_label):
         self.kdtree = None
         self.df = df.copy()
         self.k = 50
-
+        self.max_label = max_label
         self.meter_const = 3.28
 
-        self.utm_size = 10.0
-        self.labels = df[Field.STRAT].value_counts().keys().tolist()
+        self.create_kdtree()
+        self.remove_unknown()
 
-        self.utme_max = df[Field.UTME].max()
-        self.utme_min = df[Field.UTME].min()
+    def remove_unknown(self):
 
-        self.utmn_max = df[Field.UTMN].max()
-        self.utmn_min = df[Field.UTMN].min()
+        pass
 
-        self.elevation_max = df[Field.ELEVATION_TOP].max()
-
-        self.create_field(df)
-        self.create_kdtree(df)
-
-    def create_kdtree(self, df):
+    def create_kdtree(self):
         """
-        Creates a KDTree to optimize finding the K nearest neighbors to a given borehole using UTM as a metric
+        Creates a KDTree to optimize finding the K nearest neighbors to a given borehole using UTM as its metric
         Args:
-            df: Dataframe
         Returns:
         """
 
-        self.kdtree = KDTree(df[[Field.UTME, Field.UTMN]])
+        self.kdtree = KDTree(self.df[[Field.UTME, Field.UTMN]])
 
-    def create_field(self, df):
+    def compute_min_distance(self, utme, utmn, elevation, label, strat):
         """
-        Creates a field with indices (UTME, UTMN, Depth) that contains data of the form (int, boolean)
-        which represents the label and whether it is a boundary respectively
+        Calculates the minimum signed distance to a known boundary point
         Args:
-            df: Dataframe
-        Returns:
+            utme: UTME
+            utmn: UTMN
+            elevation: Elevation
+            label: Formation Label
+            strat: Point Label
+
+        Returns: Minimum signed distance
         """
-        n_utme = int(np.ceil((self.utme_max - self.utme_min) / self.utm_size) + 1)
-        n_utmn = int(np.ceil((self.utmn_max - self.utmn_min) / self.utm_size) + 1)
-        n_elevation = int(self.elevation_max + 1)
+        _, points = self.kdtree.query([[utme, utmn]], k=self.k)
+        points = points[0]
 
-        dtype = np.dtype([('label', np.int8), ('boundary', np.bool_)])
+        utme_points = self.df.iloc[points][Field.UTME]
+        utmn_points = self.df.iloc[points][Field.UTMN]
 
-        self.field = np.zeros((n_utme, n_utmn, n_elevation), dtype=dtype)
-        self.field['label'] = -1
-        self.field['boundary'] = False
-
-        for _, row in df.iterrows():
-            utme_idx = int((row[Field.UTME] - self.utme_min) / self.utm_size)
-            utmn_idx = int((row[Field.UTMN] - self.utmn_min) / self.utm_size)
-
-            for elevation in range(int(row[Field.ELEVATION_BOT]), int(row[Field.ELEVATION_TOP])):
-                self.field[utme_idx, utmn_idx, elevation]['label'] = row[Field.STRAT]
-
-            self.field[utme_idx, utmn_idx, int(row[Field.ELEVATION_TOP])]['boundary'] = True
-
-    def compute_min_distance(self, utme, utmn, elevation, label):
-        _, points = self.kdtree.query([utme, utmn], k=self.k)
-
-        df = self.df[(self.df[Field.UTME].isin(points[0])) & (self.df[Field.UTMN].isin(points[1])) & (self.df[Field.STRAT] == label)]
+        df = self.df[(self.df[Field.UTME].isin(utme_points)) & (self.df[Field.UTMN].isin(utmn_points)) & (self.df[Field.STRAT] == label)]
 
         if df.empty:
-            return np.inf
+            return -1000
 
-        df['distance'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION] - elevation)/self.meter_const) ** 2)
+        df['distance_top'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION_TOP] - elevation)/self.meter_const) ** 2)
+        df['distance_bot'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION_BOT] - elevation)/self.meter_const) ** 2)
 
-        return df['distance'].min()
+        min_dist = df[['distance_top', 'distance_bot']].min().min() * self.meter_const
 
-    def compute_all(self, utme, utmn, elevation, max_label):
-        y = []
+        if min_dist < -1000:
+            return -1000
 
-        for idx in range(max_label):
-            y.append(self.compute_signed_distance(utme, utmn, elevation, idx))
+        if strat == label:
+            return min_dist
+        else:
+            return -min_dist
 
-        return y
+    def compute_all(self, utme, utmn, elevation, strat):
+        """
+        Computes all the signed distances for a list of points
+        Args:
+            utme: UTME list
+            utmn: UTMN list
+            elevation: Elevation list
+            strat: Point label list
+
+        Returns: List of signed distances
+        """
+        dist = []
+
+        for idx in range(len(utme)):
+            lst = []
+
+            for label in range(self.max_label):
+                lst.append(self.compute_min_distance(utme[idx], utmn[idx], elevation[idx], label, strat[idx]))
+
+            dist.append(lst)
+
+        return dist

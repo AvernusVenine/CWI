@@ -31,7 +31,7 @@ class StratDataset(Dataset):
 
 class IntervalNeuralNetwork(nn.Module):
 
-    NUM_CLASSES = 18
+    NUM_CLASSES = 1
 
     def __init__(self):
         super().__init__()
@@ -51,25 +51,53 @@ class IntervalNeuralNetwork(nn.Module):
 
 class SignedDistanceLoss(nn.Module):
 
-    NUM_CLASSES = 18
+    NUM_CLASSES = 1
 
-    def __init__(self, num=50, alpha=2.0, beta=1.0, gamma=1.0):
+    def __init__(self, sdf, num=50, alpha=2.0, beta=1.0, gamma=1.0):
         super().__init__()
+        self.sdf = sdf
         self.num = num
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
 
-    def forward(self, model, X, y, label):
+        self.utme_scaler = joblib.load('nn/utme.scl')
+        self.utmn_scaler = joblib.load('nn/utmn.scl')
+        self.elevation_scaler = joblib.load('nn/elevation.scl')
+
+    def forward(self, model, X, label, device):
+        batch_size = X.shape[0]
+
+        alphas = torch.linspace(0, 1, self.num, device=device).view(1, self.num)
+        depth_top_expanded = X[0, :].view(batch_size, 1)
+        depth_bot_expanded = X[1, :].view(batch_size, 1)
+
+        depths = depth_top_expanded + alphas * (depth_bot_expanded - depth_top_expanded)
+
+        spatial = X[:, 2:].unsqueeze(1).expand(-1, self.num, -1)
+
+        depths_expanded = depths.unsqueeze(2)
+        X = torch.cat([depths_expanded, spatial], dim=2)
+        X = X.view(batch_size * self.num, 3)
+
         output = model(X)
+        output = output.view(batch_size, self.num, self.NUM_CLASSES)
 
-        weights = torch.ones_like(output) * self.gamma
-        weights[torch.arange(output.size(0)), label.squeeze()] = self.alpha
-        central_weight = F.tanh(self.alpha/(torch.abs(y) + 1e-5))
+        utme = self.utme_scaler.inverse_transform(X[:, 1].cpu().numpy().reshape(-1, 1)).flatten()
+        utmn = self.utmn_scaler.inverse_transform(X[:, 2].cpu().numpy().reshape(-1, 1)).flatten()
+        elevation = self.elevation_scaler.inverse_transform(X[:, 0].cpu().numpy().reshape(-1, 1)).flatten()
 
-        loss = (output - y) ** 2
+        label_expanded = label.repeat_interleave(self.num, dim=0).cpu().numpy().flatten()
 
-        loss = weights * central_weight * loss
+        dist = self.sdf.compute_all(utme, utmn, elevation, label_expanded)
+        dist = torch.tensor(dist, dtype=torch.float32, device=device)
+        dist = dist.view(batch_size, self.num, self.NUM_CLASSES)
+
+        central_weight = F.tanh(self.alpha/(torch.abs(dist) + 1e-5))
+
+        loss = F.mse_loss(output, dist, reduction='none')
+
+        loss = central_weight * loss
 
         return loss.mean()
 
@@ -168,6 +196,67 @@ def condense_layers(df):
 
     return new_df
 
+def load_data_single():
+    warnings.filterwarnings('ignore')
+
+    print('LOADING DATASET')
+    df = Data.load('weighted.parquet')
+    raw = Data.load_well_raw()
+
+    df[Field.COUNTY] = df[Field.RELATEID].map(raw.set_index(Field.RELATEID)[Field.COUNTY])
+    df = df[df[Field.COUNTY] == 50]
+
+    df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN, Field.ELEVATION])
+
+    df[df[Field.STRAT].astype(str).str[0] == 'D'] = 0
+    df[df[Field.STRAT].astype(str).str[0] != 'D'] = 1
+
+    df[Field.ELEVATION_TOP] = df[Field.ELEVATION] - df[Field.DEPTH_TOP]
+    df[Field.ELEVATION_BOT] = df[Field.ELEVATION] - df[Field.DEPTH_BOT]
+
+    df = df[[Field.RELATEID, Field.STRAT, Field.UTME, Field.UTMN, Field.ELEVATION_TOP, Field.ELEVATION_BOT]]
+
+    df = condense_layers(df)
+
+    sdf = SignedDistanceFunction(df, 1)
+
+    relateids = list(set(df[Field.RELATEID].values))
+    random.shuffle(relateids)
+
+    split = int(len(relateids) * .85)
+
+    train_ids = relateids[:split]
+    test_ids = relateids[split:]
+
+    utme_scaler = MinMaxScaler()
+    df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]])
+    joblib.dump(utme_scaler, 'nn/utme.scl')
+
+    utmn_scaler = MinMaxScaler()
+    df[Field.UTMN] = utmn_scaler.fit_transform(df[[Field.UTMN]])
+    joblib.dump(utmn_scaler, 'nn/utmn.scl')
+
+    elevation_scaler = MinMaxScaler()
+    df[Field.ELEVATION] = elevation_scaler.fit_transform(df[[Field.ELEVATION]])
+    joblib.dump(elevation_scaler, 'nn/elevation.scl')
+
+    train_df = df[df[Field.RELATEID].isin(train_ids)]
+    test_df = df[df[Field.RELATEID].isin(test_ids)]
+
+    X_train = train_df[[Field.ELEVATION, Field.UTME, Field.UTMN]]
+    X_test = test_df[[Field.ELEVATION, Field.UTME, Field.UTMN]]
+
+    y_train = train_df[[Field.STRAT, Field.SDF]]
+    y_test = train_df[[Field.STRAT, Field.SDF]]
+
+    train = StratDataset(X_train, y_train)
+    test = StratDataset(X_test, y_test)
+
+    train_loader = DataLoader(train, batch_size=512, shuffle=True)
+    test_loader = DataLoader(test, batch_size=512)
+
+    return train_loader, test_loader, sdf
+
 def load_data():
     warnings.filterwarnings('ignore')
 
@@ -241,8 +330,6 @@ def load_data():
     count = df[Field.STRAT].value_counts()
     df = df[df[Field.STRAT].isin(count[count > 10].index)]
 
-    return df
-
     """Split the dataset by entire wells instead of by individual layers"""
     relateids = list(set(df[Field.RELATEID].values))
     random.shuffle(relateids)
@@ -252,7 +339,7 @@ def load_data():
     train_ids = relateids[:split]
     test_ids = relateids[split:]
 
-    sdf = SignedDistanceFunction(df)
+    sdf = SignedDistanceFunction(df, len(encoder.classes_))
 
     """Create intermediate points to emulate integration"""
     num_points = 50
@@ -312,14 +399,15 @@ def load_data():
     train_loader = DataLoader(train, batch_size=512, sampler=sampler)
     test_loader = DataLoader(test, batch_size=512)
 
-    return train_loader, test_loader
+    return train_loader, test_loader, sdf
 
 def train_model(data=None, max_epochs=15, lr=1e-3):
     if data is None:
-        train_loader, test_loader = load_data()
+        train_loader, test_loader, sdf = load_data()
     else:
         train_loader = data[0]
         test_loader = data[1]
+        sdf = data[2]
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -327,7 +415,7 @@ def train_model(data=None, max_epochs=15, lr=1e-3):
     model.to(device)
 
     optimizer = Adam(model.parameters(), lr=lr)
-    loss_func = SignedDistanceLoss()
+    loss_func = SignedDistanceLoss(sdf)
 
     best_loss = np.inf
 
