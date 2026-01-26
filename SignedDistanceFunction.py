@@ -15,12 +15,21 @@ class SignedDistanceFunction:
         self.max_label = max_label
         self.meter_const = 3.28
 
+        self.extract_boundaries()
         self.create_kdtree()
-        self.remove_unknown()
 
-    def remove_unknown(self):
+    def extract_boundaries(self):
+        """
+        Extracts all known boundary data points
+        Returns:
+        """
+        df_top = self.df.drop(columns=[Field.ELEVATION_BOT]).rename(columns={Field.ELEVATION_TOP: Field.ELEVATION})
+        df_bot = self.df.drop(columns=[Field.ELEVATION_TOP]).rename(columns={Field.ELEVATION_BOT: Field.ELEVATION})
 
-        pass
+        df_bot = df_bot.sort_values([Field.RELATEID, Field.ELEVATION])
+        df_bot = df_bot.drop(df_bot.groupby(Field.RELATEID).tail(1).index)
+
+        self.df = pd.concat([df_top, df_bot])
 
     def create_kdtree(self):
         """
@@ -29,7 +38,9 @@ class SignedDistanceFunction:
         Returns:
         """
 
-        self.kdtree = KDTree(self.df[[Field.UTME, Field.UTMN]])
+        utm = self.df[[Field.UTME, Field.UTMN]].value_counts().index
+
+        self.kdtree = KDTree(utm)
 
     def compute_min_distance(self, utme, utmn, elevation, label, strat):
         """
@@ -54,10 +65,9 @@ class SignedDistanceFunction:
         if df.empty:
             return -1000
 
-        df['distance_top'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION_TOP] - elevation)/self.meter_const) ** 2)
-        df['distance_bot'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION_BOT] - elevation)/self.meter_const) ** 2)
+        df['distance'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION] - elevation)/self.meter_const) ** 2)
 
-        min_dist = df[['distance_top', 'distance_bot']].min().min() * self.meter_const
+        min_dist = df['distance'].min() * self.meter_const
 
         if min_dist < -1000:
             return -1000

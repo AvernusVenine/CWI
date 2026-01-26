@@ -93,7 +93,7 @@ class SignedDistanceLoss(nn.Module):
         dist = torch.tensor(dist, dtype=torch.float32, device=device)
         dist = dist.view(batch_size, self.num, self.NUM_CLASSES)
 
-        central_weight = F.tanh(self.alpha/(torch.abs(dist) + 1e-5))
+        central_weight = F.tanh(self.alpha/(torch.abs(dist) + 1e-5) ** 2)
 
         loss = F.mse_loss(output, dist, reduction='none')
 
@@ -340,32 +340,6 @@ def load_data():
     test_ids = relateids[split:]
 
     sdf = SignedDistanceFunction(df, len(encoder.classes_))
-
-    """Create intermediate points to emulate integration"""
-    num_points = 50
-
-    size = len(df)
-
-    df = df.reset_index(drop=True)
-    df = df.iloc[df.index.repeat(num_points)].reset_index(drop=True)
-
-    alphas = np.tile(np.linspace(0, 1, num_points), size)
-
-    df[Field.ELEVATION] = df[Field.ELEVATION_BOT] + alphas * (df[Field.ELEVATION_TOP] - df[Field.ELEVATION_BOT])
-
-    df[Field.SDF] = df.apply(lambda x: sdf.compute_all(x[Field.UTME], x[Field.UTMN], x[Field.ELEVATION], 18), axis=1)
-
-    def remove_unknown(group):
-        elevation_bot = group[Field.ELEVATION_BOT].min()
-
-        mask = group[Field.ELEVATION_BOT] == elevation_bot
-
-        indices = group[mask].sort_values(Field.ELEVATION).index
-        count = len(indices) // 2
-
-        return group[~group.index.isin(indices[:count])]
-
-    df = df.groupby(Field.RELATEID, group_keys=False).apply(remove_unknown).reset_index(drop=True)
 
     utme_scaler = MinMaxScaler()
     df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]])
