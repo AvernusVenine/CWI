@@ -11,7 +11,7 @@ class SignedDistanceFunction:
     def __init__(self, df, max_label):
         self.kdtree = None
         self.df = df.copy()
-        self.k = 50
+        self.k = 10
         self.max_label = max_label
         self.meter_const = 3.28
 
@@ -40,7 +40,7 @@ class SignedDistanceFunction:
 
         utm = self.df[[Field.UTME, Field.UTMN]].value_counts().index
 
-        self.kdtree = KDTree(utm)
+        self.kdtree = KDTree(utm.values.tolist())
 
     def compute_min_distance(self, utme, utmn, elevation, label, strat):
         """

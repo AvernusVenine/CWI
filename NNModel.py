@@ -20,18 +20,17 @@ class StratDataset(Dataset):
 
     def __init__(self, X, y):
         self.X = torch.from_numpy(X.values).float()
-        self.y = torch.from_numpy(y[Field.SDF].values).float()
-        self.label = torch.from_numpy(y[Field.STRAT].values).long()
+        self.y = torch.from_numpy(y[Field.STRAT].values).long()
 
     def __len__(self):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return self.X[idx], self.y[idx], self.label[idx]
+        return self.X[idx], self.y[idx]
 
 class IntervalNeuralNetwork(nn.Module):
 
-    NUM_CLASSES = 1
+    NUM_CLASSES = 6
 
     def __init__(self):
         super().__init__()
@@ -51,15 +50,24 @@ class IntervalNeuralNetwork(nn.Module):
 
 class SignedDistanceLoss(nn.Module):
 
-    NUM_CLASSES = 1
+    NUM_CLASSES = 6
 
-    def __init__(self, sdf, num=50, alpha=2.0, beta=1.0, gamma=1.0):
+    def __init__(self, sdf, num=50, lam=25.0, alpha=1.0, beta=.2):
+        """
+        Initializes the SignedDistanceLoss function
+        Args:
+            sdf: SignedDistanceFunction used to calculate assumed signed distances
+            num: Number of points to use when emulating integration over a depth range
+            lam: Lambda value used to regularize the weight of large distances used in tanh(lambda/sdf(x)^2)
+            alpha: Alpha value used to weigh the loss that comes from the formation a data point belongs to
+            beta: Beta value used to weigh the loss that comes from the formations a data point does not belong to
+        """
         super().__init__()
         self.sdf = sdf
         self.num = num
+        self.lam = lam
         self.alpha = alpha
         self.beta = beta
-        self.gamma = gamma
 
         self.utme_scaler = joblib.load('nn/utme.scl')
         self.utmn_scaler = joblib.load('nn/utmn.scl')
@@ -69,8 +77,8 @@ class SignedDistanceLoss(nn.Module):
         batch_size = X.shape[0]
 
         alphas = torch.linspace(0, 1, self.num, device=device).view(1, self.num)
-        depth_top_expanded = X[0, :].view(batch_size, 1)
-        depth_bot_expanded = X[1, :].view(batch_size, 1)
+        depth_top_expanded = X[:, 0].view(batch_size, 1)
+        depth_bot_expanded = X[:, 1].view(batch_size, 1)
 
         depths = depth_top_expanded + alphas * (depth_bot_expanded - depth_top_expanded)
 
@@ -93,11 +101,15 @@ class SignedDistanceLoss(nn.Module):
         dist = torch.tensor(dist, dtype=torch.float32, device=device)
         dist = dist.view(batch_size, self.num, self.NUM_CLASSES)
 
-        central_weight = F.tanh(self.alpha/(torch.abs(dist) + 1e-5) ** 2)
+        central_weight = F.tanh(self.lam/(torch.abs(dist) + 1e-5) ** 2)
+
+        member_weight = torch.where(dist >= 0,
+            torch.tensor(self.alpha, dtype=torch.float32, device=device),
+            torch.tensor(self.beta, dtype=torch.float32, device=device))
 
         loss = F.mse_loss(output, dist, reduction='none')
 
-        loss = central_weight * loss
+        loss = member_weight * central_weight * loss
 
         return loss.mean()
 
@@ -146,6 +158,13 @@ class IntervalIntegratedLoss(nn.Module):
         return loss.mean()
 
 def condense_layers(df):
+    """
+    Condenses the layers within a dataframe by combining neighbors of the same value into one
+    Args:
+        df: Layer dataframe
+
+    Returns: Condensed dataframe
+    """
     df = df.sort_values([Field.RELATEID, Field.ELEVATION_TOP, Field.ELEVATION_BOT], ascending=[True, False, True])
     new_df = pd.DataFrame(columns=df.columns)
 
@@ -272,31 +291,14 @@ def load_data():
         'DCVU' : 'Upper Cedar',
         'DSPL' : 'Wapsipinicon',
         'DWPR' : 'Wapsipinicon',
-        'OPDC' : 'Prairie Du Chien',
-        'OSTP' : 'St Peter Sandstone',
-        'OPVL' : 'Platteville',
-        'OGWD' : 'Glenwood',
-        'ODCR' : 'Decorah Shale',
-        'OPOD' : 'Prairie Du Chien',
         'OGCM' : 'Galena',
-        'OPSH' : 'Prairie Du Chien',
-        'OPGW' : 'Platteville',
         'OGSC' : 'Galena',
         'OGSV' : 'Galena',
         'OMAQ' : 'Maquoketa',
         'OGPR' : 'Galena',
         'OGPC' : 'Galena',
-        'OPWR' : 'Prairie Du Chien',
         'OGVP' : 'Galena',
         'ODUB' : 'Galena',
-        'CJDN' : 'Jordan Sandstone',
-        'CTCG' : 'Tunnel City',
-        'CSTL' : 'St Lawrence',
-        'CWOC' : 'Wonewoc',
-        'CMTS' : 'Mt Simon',
-        'CTLR' : 'Tunnel City',
-        'CECR' : 'Eau Claire',
-        'CTMZ' : 'Tunnel City'
     }
 
     df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN, Field.ELEVATION])
@@ -327,9 +329,6 @@ def load_data():
     df[Field.STRAT] = encoder.fit_transform(df[Field.STRAT])
     joblib.dump(encoder, 'nn/strat.enc')
 
-    count = df[Field.STRAT].value_counts()
-    df = df[df[Field.STRAT].isin(count[count > 10].index)]
-
     """Split the dataset by entire wells instead of by individual layers"""
     relateids = list(set(df[Field.RELATEID].values))
     random.shuffle(relateids)
@@ -342,25 +341,27 @@ def load_data():
     sdf = SignedDistanceFunction(df, len(encoder.classes_))
 
     utme_scaler = MinMaxScaler()
-    df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]])
+    df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]].values.tolist())
     joblib.dump(utme_scaler, 'nn/utme.scl')
 
     utmn_scaler = MinMaxScaler()
-    df[Field.UTMN] = utmn_scaler.fit_transform(df[[Field.UTMN]])
+    df[Field.UTMN] = utmn_scaler.fit_transform(df[[Field.UTMN]].values.tolist())
     joblib.dump(utmn_scaler, 'nn/utmn.scl')
 
     elevation_scaler = MinMaxScaler()
-    df[Field.ELEVATION] = elevation_scaler.fit_transform(df[[Field.ELEVATION]])
+    elevation_scaler.fit(df[[Field.ELEVATION_TOP]].values.tolist() + df[[Field.ELEVATION_BOT]].values.tolist())
+    df[Field.ELEVATION_TOP] = elevation_scaler.transform(df[[Field.ELEVATION_TOP]].values.tolist())
+    df[Field.ELEVATION_BOT] = elevation_scaler.transform(df[[Field.ELEVATION_BOT]].values.tolist())
     joblib.dump(elevation_scaler, 'nn/elevation.scl')
 
     train_df = df[df[Field.RELATEID].isin(train_ids)]
     test_df = df[df[Field.RELATEID].isin(test_ids)]
 
-    X_train = train_df[[Field.ELEVATION, Field.UTME, Field.UTMN]]
-    X_test = test_df[[Field.ELEVATION, Field.UTME, Field.UTMN]]
+    X_train = train_df[[Field.ELEVATION_TOP, Field.ELEVATION_BOT, Field.UTME, Field.UTMN]]
+    X_test = test_df[[Field.ELEVATION_TOP, Field.ELEVATION_BOT, Field.UTME, Field.UTMN]]
 
-    y_train = train_df[[Field.STRAT, Field.SDF]]
-    y_test = train_df[[Field.STRAT, Field.SDF]]
+    y_train = train_df[[Field.STRAT]]
+    y_test = train_df[[Field.STRAT]]
 
     count = y_train[Field.STRAT].value_counts()
     weights = [(1/count[i])**.25 for i in y_train[Field.STRAT].values]
@@ -399,11 +400,11 @@ def train_model(data=None, max_epochs=15, lr=1e-3):
         model.train()
 
         train_loss = 0
-        for X, y, label in train_loader:
+        for X, y in train_loader:
             X = X.to(device)
             y = y.to(device)
 
-            loss = loss_func(model, X, y, label)
+            loss = loss_func(model, X, y, device)
 
             optimizer.zero_grad()
             loss.backward()
@@ -417,11 +418,11 @@ def train_model(data=None, max_epochs=15, lr=1e-3):
 
         test_loss = 0
         with torch.no_grad():
-            for X, y, label in test_loader:
+            for X, y in test_loader:
                 X = X.to(device)
                 y = y.to(device)
 
-                loss = loss_func(model, X, y, label)
+                loss = loss_func(model, X, y, device)
 
                 test_loss += loss.item()
 
