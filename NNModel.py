@@ -35,13 +35,13 @@ class IntervalNeuralNetwork(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.linear1 = nn.Linear(3, 1024)
-        self.linear2 = nn.Linear(1024, 512)
-        self.linear3 = nn.Linear(512, 64)
-        self.linear4 = nn.Linear(64, self.NUM_CLASSES)
+        #self.linear1 = nn.Linear(3, 1024)
+        self.linear2 = nn.Linear(3, 512)
+        self.linear3 = nn.Linear(512, 256)
+        self.linear4 = nn.Linear(256, self.NUM_CLASSES)
 
     def forward(self, X):
-        X = F.relu(self.linear1(X))
+        #X = F.relu(self.linear1(X))
         X = F.relu(self.linear2(X))
         X = F.relu(self.linear3(X))
         X = self.linear4(X)
@@ -52,7 +52,7 @@ class SignedDistanceLoss(nn.Module):
 
     NUM_CLASSES = 6
 
-    def __init__(self, sdf, num=50, lam=25.0, alpha=1.0, beta=.2):
+    def __init__(self, sdf, num=25, lam=25.0, alpha=1.0, beta=.5):
         """
         Initializes the SignedDistanceLoss function
         Args:
@@ -101,7 +101,8 @@ class SignedDistanceLoss(nn.Module):
         dist = torch.tensor(dist, dtype=torch.float32, device=device)
         dist = dist.view(batch_size, self.num, self.NUM_CLASSES)
 
-        central_weight = F.tanh(self.lam/(torch.abs(dist) + 1e-5) ** 2)
+        #central_weight = F.tanh(self.lam/((torch.abs(dist) + 1e-5)**2))
+        #central_weight = torch.clamp(central_weight, min=0.2)
 
         member_weight = torch.where(dist >= 0,
             torch.tensor(self.alpha, dtype=torch.float32, device=device),
@@ -109,7 +110,7 @@ class SignedDistanceLoss(nn.Module):
 
         loss = F.mse_loss(output, dist, reduction='none')
 
-        loss = member_weight * central_weight * loss
+        loss = member_weight * loss
 
         return loss.mean()
 
@@ -376,7 +377,7 @@ def load_data():
 
     return train_loader, test_loader, sdf
 
-def train_model(data=None, max_epochs=15, lr=1e-3):
+def train_model(data=None, max_epochs=15, lr=1e-3, retrain=False):
     if data is None:
         train_loader, test_loader, sdf = load_data()
     else:
@@ -387,6 +388,11 @@ def train_model(data=None, max_epochs=15, lr=1e-3):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = IntervalNeuralNetwork()
+
+    if retrain:
+        state_dict = torch.load('nn/interval.pth')
+        model.load_state_dict(state_dict)
+
     model.to(device)
 
     optimizer = Adam(model.parameters(), lr=lr)
@@ -415,6 +421,9 @@ def train_model(data=None, max_epochs=15, lr=1e-3):
         print(f'Train Loss {train_loss / len(train_loader)}')
 
         model.eval()
+
+        total = 0
+        correct = 0
 
         test_loss = 0
         with torch.no_grad():

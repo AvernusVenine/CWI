@@ -10,6 +10,7 @@ class SignedDistanceFunction:
 
     def __init__(self, df, max_label):
         self.kdtree = None
+        self.utm = None
         self.df = df.copy()
         self.k = 10
         self.max_label = max_label
@@ -38,39 +39,52 @@ class SignedDistanceFunction:
         Returns:
         """
 
-        utm = self.df[[Field.UTME, Field.UTMN]].value_counts().index
+        self.utm = self.df[[Field.UTME, Field.UTMN]].drop_duplicates().values
 
-        self.kdtree = KDTree(utm.values.tolist())
+        self.kdtree = KDTree(self.utm)
 
-    def compute_min_distance(self, utme, utmn, elevation, label, strat):
+    def find_nearest_holes(self, utme, utmn, elevation):
         """
-        Calculates the minimum signed distance to a known boundary point
+        Computes the k-nearest boreholes and the distances to them
         Args:
             utme: UTME
             utmn: UTMN
             elevation: Elevation
-            label: Formation Label
-            strat: Point Label
 
-        Returns: Minimum signed distance
+        Returns: Nearest boreholes Dataframe with distances
         """
         _, points = self.kdtree.query([[utme, utmn]], k=self.k)
         points = points[0]
 
-        utme_points = self.df.iloc[points][Field.UTME]
-        utmn_points = self.df.iloc[points][Field.UTMN]
+        utm = self.utm[points]
 
-        df = self.df[(self.df[Field.UTME].isin(utme_points)) & (self.df[Field.UTMN].isin(utmn_points)) & (self.df[Field.STRAT] == label)]
+        df = self.df[self.df[[Field.UTME, Field.UTMN]].apply(
+                lambda row: any((row[Field.UTME] == x[0]) & (row[Field.UTMN] == x[1]) for x in utm), axis=1)].copy()
+
+        df['distance'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION] - elevation) / self.meter_const) ** 2)
+
+        return df
+
+    def compute_min_distance(self, label, strat, df):
+        """
+        Calculates the minimum signed distance to a known boundary point
+        Args:
+            label: Formation Label
+            strat: Point Label
+            df: Dataframe of nearest boreholes
+
+        Returns: Minimum signed distance
+        """
+
+        df = df[df[Field.STRAT] == label]
 
         if df.empty:
-            return -1000
+            return -6
 
-        df['distance'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION] - elevation)/self.meter_const) ** 2)
+        min_dist = np.log(df['distance'].min() + 1)
 
-        min_dist = df['distance'].min() * self.meter_const
-
-        if min_dist < -1000:
-            return -1000
+        if min_dist > 6:
+            return -6
 
         if strat == label:
             return min_dist
@@ -92,9 +106,10 @@ class SignedDistanceFunction:
 
         for idx in range(len(utme)):
             lst = []
+            df = self.find_nearest_holes(utme[idx], utmn[idx], elevation[idx])
 
             for label in range(self.max_label):
-                lst.append(self.compute_min_distance(utme[idx], utmn[idx], elevation[idx], label, strat[idx]))
+                lst.append(self.compute_min_distance(label, strat[idx], df))
 
             dist.append(lst)
 
