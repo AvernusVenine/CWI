@@ -27,7 +27,12 @@ class SignedDistanceFunction:
         df_top = self.df.drop(columns=[Field.ELEVATION_BOT]).rename(columns={Field.ELEVATION_TOP: Field.ELEVATION})
         df_bot = self.df.drop(columns=[Field.ELEVATION_TOP]).rename(columns={Field.ELEVATION_BOT: Field.ELEVATION})
 
-        df_bot = df_bot.sort_values([Field.RELATEID, Field.ELEVATION])
+        """Remove the top most reading of a borehole to simplify the model and use actual elevation as a cutoff"""
+        df_top = df_top.sort_values([Field.RELATEID, Field.ELEVATION]).reset_index()
+        df_top = df_top.drop(df_top.groupby(Field.RELATEID).head(1).index)
+
+        """Remove the bottom most reading of a borehole due to uncertainty"""
+        df_bot = df_bot.sort_values([Field.RELATEID, Field.ELEVATION]).reset_index()
         df_bot = df_bot.drop(df_bot.groupby(Field.RELATEID).tail(1).index)
 
         self.df = pd.concat([df_top, df_bot])
@@ -58,8 +63,11 @@ class SignedDistanceFunction:
 
         utm = self.utm[points]
 
-        df = self.df[self.df[[Field.UTME, Field.UTMN]].apply(
-                lambda row: any((row[Field.UTME] == x[0]) & (row[Field.UTMN] == x[1]) for x in utm), axis=1)].copy()
+        utm_df = pd.DataFrame(utm, columns=[Field.UTME, Field.UTMN])
+        utm_df['nearest'] = True
+
+        df = self.df.merge(utm_df, on=[Field.UTME, Field.UTMN], how='inner').copy()
+        df.drop(columns=['nearest'], inplace=True)
 
         df['distance'] = np.sqrt((df[Field.UTME] - utme) ** 2 + (df[Field.UTMN] - utmn) ** 2 + ((df[Field.ELEVATION] - elevation) / self.meter_const) ** 2)
 

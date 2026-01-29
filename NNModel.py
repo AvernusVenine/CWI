@@ -30,19 +30,23 @@ class StratDataset(Dataset):
 
 class IntervalNeuralNetwork(nn.Module):
 
-    NUM_CLASSES = 6
+    NUM_CLASSES = 7
 
     def __init__(self):
         super().__init__()
 
-        #self.linear1 = nn.Linear(3, 1024)
-        self.linear2 = nn.Linear(3, 512)
+        self.linear1 = nn.Linear(3, 1024)
+        self.linear2 = nn.Linear(1024, 512)
         self.linear3 = nn.Linear(512, 256)
         self.linear4 = nn.Linear(256, self.NUM_CLASSES)
 
+        self.dropout = nn.Dropout(p=.2)
+
     def forward(self, X):
-        #X = F.relu(self.linear1(X))
+        X = F.relu(self.linear1(X))
+        X = self.dropout(X)
         X = F.relu(self.linear2(X))
+        X = self.dropout(X)
         X = F.relu(self.linear3(X))
         X = self.linear4(X)
 
@@ -50,24 +54,21 @@ class IntervalNeuralNetwork(nn.Module):
 
 class SignedDistanceLoss(nn.Module):
 
-    NUM_CLASSES = 6
+    NUM_CLASSES = 7
 
-    def __init__(self, sdf, num=25, lam=25.0, alpha=1.0, beta=.5):
+    def __init__(self, sdf, num=25, lam=2.0, gamma=2.0):
         """
         Initializes the SignedDistanceLoss function
         Args:
             sdf: SignedDistanceFunction used to calculate assumed signed distances
             num: Number of points to use when emulating integration over a depth range
-            lam: Lambda value used to regularize the weight of large distances used in tanh(lambda/sdf(x)^2)
-            alpha: Alpha value used to weigh the loss that comes from the formation a data point belongs to
-            beta: Beta value used to weigh the loss that comes from the formations a data point does not belong to
+            lam: Lambda value used to regularize the weight lambda/NUM_CLASSES for formation membership
         """
         super().__init__()
         self.sdf = sdf
         self.num = num
         self.lam = lam
-        self.alpha = alpha
-        self.beta = beta
+        self.gamma = gamma
 
         self.utme_scaler = joblib.load('nn/utme.scl')
         self.utmn_scaler = joblib.load('nn/utmn.scl')
@@ -101,12 +102,11 @@ class SignedDistanceLoss(nn.Module):
         dist = torch.tensor(dist, dtype=torch.float32, device=device)
         dist = dist.view(batch_size, self.num, self.NUM_CLASSES)
 
-        #central_weight = F.tanh(self.lam/((torch.abs(dist) + 1e-5)**2))
-        #central_weight = torch.clamp(central_weight, min=0.2)
+        central_weight = F.tanh(self.gamma/(torch.abs(dist) + 1e-5))
 
         member_weight = torch.where(dist >= 0,
-            torch.tensor(self.alpha, dtype=torch.float32, device=device),
-            torch.tensor(self.beta, dtype=torch.float32, device=device))
+            torch.tensor(1, dtype=torch.float32, device=device),
+            torch.tensor(self.lam/self.NUM_CLASSES, dtype=torch.float32, device=device))
 
         loss = F.mse_loss(output, dist, reduction='none')
 
@@ -304,18 +304,17 @@ def load_data():
 
     df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN, Field.ELEVATION])
 
-    qdf = df[df[Field.STRAT].astype(str).str[0].isin(['Q', 'R', 'W'])]
+    qdf = df[df[Field.STRAT].astype(str).str[0].isin(['Q', 'R', 'W', 'F', 'Y', 'X'])]
     qdf[Field.STRAT] = 'Quaternary'
 
-    pdf = df[df[Field.STRAT].astype(str).str[0].isin(['P'])]
-    pdf = pdf[~pdf[Field.STRAT].isin(['PUDF', 'PITT', 'PVMT'])]
-    pdf[Field.STRAT] = 'Precambrian'
+    kdf = df[df[Field.STRAT].astype(str).str[0].isin(['K'])]
+    kdf[Field.STRAT] = 'Cretaceous'
 
     df = df[df[Field.STRAT].isin(list(valid_codes.keys()))]
 
     df[Field.STRAT] = df[Field.STRAT].replace(valid_codes)
 
-    df = pd.concat([df, qdf])
+    df = pd.concat([df, qdf, kdf])
 
     df[Field.ELEVATION_TOP] = df[Field.ELEVATION] - df[Field.DEPTH_TOP]
     df[Field.ELEVATION_BOT] = df[Field.ELEVATION] - df[Field.DEPTH_BOT]
@@ -390,7 +389,7 @@ def train_model(data=None, max_epochs=15, lr=1e-3, retrain=False):
     model = IntervalNeuralNetwork()
 
     if retrain:
-        state_dict = torch.load('nn/interval.pth')
+        state_dict = torch.load('nn/sdf.pth')
         model.load_state_dict(state_dict)
 
     model.to(device)
@@ -438,13 +437,13 @@ def train_model(data=None, max_epochs=15, lr=1e-3, retrain=False):
         print(f'Test Loss {test_loss / len(test_loader)}')
 
         if test_loss < best_loss:
-            torch.save(model.state_dict(), 'nn/interval.pth')
+            torch.save(model.state_dict(), 'nn/sdf.pth')
 
 def test_model(utme, utmn, depth, elevation):
     warnings.filterwarnings('ignore')
 
     model = IntervalNeuralNetwork()
-    state_dict = torch.load('nn/interval.pth')
+    state_dict = torch.load('nn/sdf.pth')
     model.load_state_dict(state_dict)
     model.eval()
 
@@ -463,81 +462,105 @@ def test_model(utme, utmn, depth, elevation):
 
     return output
 
-def test_borehole(utme, utmn, elevation, depth_top, depth_bot):
-    encoder = joblib.load('nn/strat.enc')
+def elevation_cross_section(utme, utmn, elevation, utm_count=100):
+    """
+    Creates a 2D image of the predicted cross-section between two UTM points at a set elevation
 
-    depths = []
-    labels = []
+    Args:
+        utme: Range of UTME min and UTME max for cross-section bounds
+        utmn: UTMN
+        elevation: Range of elevation min and elevation max for cross-section bounds
+        utm_count: Number of pixels on UTME axis
+    Returns:
 
-    for depth in range(depth_top, depth_bot):
-        output = test_model(utme, utmn, depth, elevation)
+    """
+    warnings.filterwarnings('ignore')
 
-        labels.append(output.argmax().item())
-        depths.append(elevation - depth)
+    model = IntervalNeuralNetwork()
+    state_dict = torch.load('nn/sdf.pth')
+    model.load_state_dict(state_dict)
+    model.eval()
 
-    labels = encoder.inverse_transform(labels)
+    utme_scaler = joblib.load('nn/utme.scl')
+    utmn_scaler = joblib.load('nn/utmn.scl')
+    elevation_scaler = joblib.load('nn/elevation.scl')
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 10))
+    utme_size = (utme[1] - utme[0])/utm_count
+    utmn_size = (utmn[1] - utmn[1])/utm_count
 
-    unique_labels = encoder.classes_
-    colors = plt.cm.tab20(range(len(unique_labels)))
-    color_map = {label: colors[i] for i, label in enumerate(unique_labels)}
+    data = np.full([utm_count, utm_count], -1)
 
-    for i in range(len(depths)):
-        ax1.barh(
-            y=depths[i],
-            width=1,
-            height=1,
-            color=color_map[labels[i]],
-            edgecolor='none'
-        )
+    for idx in range(0, utm_count):
 
-    handles = [plt.Rectangle((0, 0), 1, 1, color=color_map[label]) for label in unique_labels]
-    ax1.legend(handles, unique_labels, loc='upper right', fontsize=10)
+        x = utme_scaler.transform([[utme[1] + utme_size * idx]])[0][0]
+        z = elevation_scaler.transform([[elevation]])[0][0]
 
-    ax1.set_ylabel('Elevation', fontsize=12)
-    ax1.set_title('Predicted Stratigraphy', fontsize=14, fontweight='bold')
-    ax1.set_xlim(0, 1)
-    ax1.set_xticks([])
+        for jdx in range(0, utm_count):
 
-    ax2.plot(probs, depths, linewidth=2, color='darkblue')
-    ax2.fill_betweenx(depths, 0, probs, alpha=0.3, color='lightblue')
-    ax2.set_xlabel('Prediction Confidence', fontsize=12)
-    ax2.set_ylabel('Elevation', fontsize=12)
-    ax2.set_title('Model Confidence', fontsize=14, fontweight='bold')
-    ax2.set_xlim(0, 1)
-    ax2.grid(alpha=0.3)
-    ax2.axvline(x=0.5, color='red', linestyle='--', alpha=0.5, label='50% threshold')
-    ax2.legend(fontsize=10)
+            y = utmn_scaler.transform([[utmn[1] + utmn_size * jdx]])[0][0]
 
-    plt.tight_layout()
-    plt.savefig('borehole.png')
+            X = torch.tensor([z, x, y]).float().unsqueeze(0)
 
-def cross_section_utmn(utme_min, utme_max, elevation_min, elevation_max, utmn, count=1000):
-    encoder = joblib.load('nn/strat.enc')
+            with torch.no_grad():
+                output = model(X)
 
-    total_depths = []
-    total_labels = []
-    total_probs = []
+            data[jdx, idx] = int(torch.argmax(output))
 
-    for utme in range(utme_min, utme_max, int((utme_max-utme_min)/count)):
+    plt.figure()
 
-        depths = []
-        labels = []
-        probs = []
+    plt.imshow(data, cmap='tab10', interpolation='nearest', origin='lower')
+    plt.colorbar()
 
-        for elevation in range(elevation_min, elevation_max):
+    plt.savefig('elevation_cross.png')
+    plt.close()
 
-            output = test_model(utme, utmn, 0, elevation)
+def utme_cross_section(utme, utmn, elevation, utm_count=100):
+    """
+    Creates a 2D image of the predicted cross-section between two UTME points between two elevations
 
-            depths.append(elevation)
-            labels.append(output.argmax().item())
-            probs.append(output.max().item())
+    Args:
+        utme: Range of UTME min and UTME max for cross-section bounds
+        utmn: UTMN
+        elevation: Range of elevation min and elevation max for cross-section bounds
+        utm_count: Number of pixels on UTME axis
+    Returns:
 
-        labels = encoder.inverse_transform(labels)
+    """
+    warnings.filterwarnings('ignore')
 
-        total_depths.append(depths)
-        total_labels.append(labels)
-        total_probs.append(probs)
+    model = IntervalNeuralNetwork()
+    state_dict = torch.load('nn/sdf.pth')
+    model.load_state_dict(state_dict)
+    model.eval()
 
-    pass
+    utme_scaler = joblib.load('nn/utme.scl')
+    utmn_scaler = joblib.load('nn/utmn.scl')
+    elevation_scaler = joblib.load('nn/elevation.scl')
+
+    utme_size = (utme[1] - utme[0])/utm_count
+
+    data = np.full([(elevation[0] - elevation[1]), utm_count], -1)
+
+    for idx in range(0, utm_count):
+
+        x = utme_scaler.transform([[utme[1] + utme_size * idx]])[0][0]
+        y = utmn_scaler.transform([[utmn]])[0][0]
+
+        for jdx in range(0, elevation[0] - elevation[1]):
+
+            z = elevation_scaler.transform([[jdx + elevation[1]]])[0][0]
+
+            X = torch.tensor([z, x, y]).float().unsqueeze(0)
+
+            with torch.no_grad():
+                output = model(X)
+
+            data[jdx, idx] = int(torch.argmax(output))
+
+    plt.figure()
+
+    plt.imshow(data, cmap='tab10', interpolation='nearest', origin='lower')
+    plt.colorbar()
+
+    plt.savefig('utme_cross.png')
+    plt.close()
