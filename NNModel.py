@@ -30,15 +30,14 @@ class StratDataset(Dataset):
 
 class IntervalNeuralNetwork(nn.Module):
 
-    NUM_CLASSES = 7
-
-    def __init__(self):
+    def __init__(self, num_classes):
         super().__init__()
+        self.num_classes = num_classes
 
         self.linear1 = nn.Linear(3, 1024)
         self.linear2 = nn.Linear(1024, 512)
         self.linear3 = nn.Linear(512, 256)
-        self.linear4 = nn.Linear(256, self.NUM_CLASSES)
+        self.linear4 = nn.Linear(256, self.num_classes)
 
         self.dropout = nn.Dropout(p=.2)
 
@@ -54,9 +53,7 @@ class IntervalNeuralNetwork(nn.Module):
 
 class SignedDistanceLoss(nn.Module):
 
-    NUM_CLASSES = 7
-
-    def __init__(self, sdf, num=25, lam=2.0, gamma=2.0):
+    def __init__(self, sdf, num_classes, num=25, lam=2.0, gamma=2.0):
         """
         Initializes the SignedDistanceLoss function
         Args:
@@ -66,6 +63,8 @@ class SignedDistanceLoss(nn.Module):
         """
         super().__init__()
         self.sdf = sdf
+        self.num_classes = num_classes
+
         self.num = num
         self.lam = lam
         self.gamma = gamma
@@ -90,7 +89,7 @@ class SignedDistanceLoss(nn.Module):
         X = X.view(batch_size * self.num, 3)
 
         output = model(X)
-        output = output.view(batch_size, self.num, self.NUM_CLASSES)
+        output = output.view(batch_size, self.num, self.num_classes)
 
         utme = self.utme_scaler.inverse_transform(X[:, 1].cpu().numpy().reshape(-1, 1)).flatten()
         utmn = self.utmn_scaler.inverse_transform(X[:, 2].cpu().numpy().reshape(-1, 1)).flatten()
@@ -100,13 +99,13 @@ class SignedDistanceLoss(nn.Module):
 
         dist = self.sdf.compute_all(utme, utmn, elevation, label_expanded)
         dist = torch.tensor(dist, dtype=torch.float32, device=device)
-        dist = dist.view(batch_size, self.num, self.NUM_CLASSES)
+        dist = dist.view(batch_size, self.num, self.num_classes)
 
         central_weight = F.tanh(self.gamma/(torch.abs(dist) + 1e-5))
 
         member_weight = torch.where(dist >= 0,
             torch.tensor(1, dtype=torch.float32, device=device),
-            torch.tensor(self.lam/self.NUM_CLASSES, dtype=torch.float32, device=device))
+            torch.tensor(0.5, dtype=torch.float32, device=device))
 
         loss = F.mse_loss(output, dist, reduction='none')
 
@@ -224,7 +223,7 @@ def load_data_single():
     raw = Data.load_well_raw()
 
     df[Field.COUNTY] = df[Field.RELATEID].map(raw.set_index(Field.RELATEID)[Field.COUNTY])
-    df = df[df[Field.COUNTY] == 50]
+    df = df[df[Field.COUNTY] == 55]
 
     df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN, Field.ELEVATION])
 
@@ -285,7 +284,7 @@ def load_data():
     raw = Data.load_well_raw()
 
     df[Field.COUNTY] = df[Field.RELATEID].map(raw.set_index(Field.RELATEID)[Field.COUNTY])
-    df = df[df[Field.COUNTY] == 50]
+    df = df[df[Field.COUNTY] == 55]
 
     valid_codes = {
         'DCVL' : 'Lower Cedar',
@@ -300,6 +299,20 @@ def load_data():
         'OGPC' : 'Galena',
         'OGVP' : 'Galena',
         'ODUB' : 'Galena',
+        'OPDC' : 'Prairie Du Chien',
+        'OSTP' : 'St Peter',
+        'CJDN' : 'Jordan',
+        'OPVL' : 'Platteville',
+        'OGWD' : 'Glenwood',
+        'ODCR' : 'Decorah',
+        'OPSH' : 'Prairie Du Chien',
+        'OPOD' : 'Prairie Du Chien',
+        'CSTL' : 'St Lawrence',
+        'CTLR' : 'Tunnel City',
+        'CECR' : 'Eau Claire',
+        'CWOC' : 'Wonewoc',
+        'CTCG' : 'Tunnel City',
+        'CMTS' : 'Mt Simon',
     }
 
     df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN, Field.ELEVATION])
@@ -323,7 +336,9 @@ def load_data():
 
     df = condense_layers(df)
 
+    """Get rid of all 0 thickness layers and single layer boreholes"""
     df = df[df[Field.ELEVATION_TOP] - df[Field.ELEVATION_BOT] > 0.0]
+    df = df.groupby('relateid').filter(lambda x: len(x) > 1)
 
     encoder = LabelEncoder()
     df[Field.STRAT] = encoder.fit_transform(df[Field.STRAT])
@@ -366,27 +381,29 @@ def load_data():
     count = y_train[Field.STRAT].value_counts()
     weights = [(1/count[i])**.25 for i in y_train[Field.STRAT].values]
 
-    sampler = WeightedRandomSampler(weights=weights, num_samples=int(len(y_train)), replacement=True)
+    #sampler = WeightedRandomSampler(weights=weights, num_samples=int(len(y_train)), replacement=True)
 
     train = StratDataset(X_train, y_train)
     test = StratDataset(X_test, y_test)
 
-    train_loader = DataLoader(train, batch_size=512, sampler=sampler)
+    #train_loader = DataLoader(train, batch_size=512, sampler=sampler)
+    train_loader = DataLoader(train, batch_size=512, shuffle=True)
     test_loader = DataLoader(test, batch_size=512)
 
-    return train_loader, test_loader, sdf
+    return train_loader, test_loader, sdf, encoder
 
 def train_model(data=None, max_epochs=15, lr=1e-3, retrain=False):
     if data is None:
-        train_loader, test_loader, sdf = load_data()
+        train_loader, test_loader, sdf, encoder = load_data()
     else:
         train_loader = data[0]
         test_loader = data[1]
         sdf = data[2]
+        encoder = data[3]
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    model = IntervalNeuralNetwork()
+    model = IntervalNeuralNetwork(len(encoder.classes_))
 
     if retrain:
         state_dict = torch.load('nn/sdf.pth')
@@ -395,7 +412,7 @@ def train_model(data=None, max_epochs=15, lr=1e-3, retrain=False):
     model.to(device)
 
     optimizer = Adam(model.parameters(), lr=lr)
-    loss_func = SignedDistanceLoss(sdf)
+    loss_func = SignedDistanceLoss(sdf, len(encoder.classes_))
 
     best_loss = np.inf
 
@@ -442,7 +459,9 @@ def train_model(data=None, max_epochs=15, lr=1e-3, retrain=False):
 def test_model(utme, utmn, depth, elevation):
     warnings.filterwarnings('ignore')
 
-    model = IntervalNeuralNetwork()
+    encoder = joblib.load('nn/strat.enc')
+
+    model = IntervalNeuralNetwork(len(encoder.classes_))
     state_dict = torch.load('nn/sdf.pth')
     model.load_state_dict(state_dict)
     model.eval()
@@ -508,7 +527,7 @@ def elevation_cross_section(utme, utmn, elevation, utm_count=100):
 
     plt.figure()
 
-    plt.imshow(data, cmap='tab10', interpolation='nearest', origin='lower')
+    plt.imshow(data, cmap='jet', origin='lower')
     plt.colorbar()
 
     plt.savefig('elevation_cross.png')
@@ -528,7 +547,9 @@ def utme_cross_section(utme, utmn, elevation, utm_count=100):
     """
     warnings.filterwarnings('ignore')
 
-    model = IntervalNeuralNetwork()
+    encoder = joblib.load('nn/strat.enc')
+
+    model = IntervalNeuralNetwork(len(encoder.classes_))
     state_dict = torch.load('nn/sdf.pth')
     model.load_state_dict(state_dict)
     model.eval()
@@ -559,7 +580,7 @@ def utme_cross_section(utme, utmn, elevation, utm_count=100):
 
     plt.figure()
 
-    plt.imshow(data, cmap='tab10', interpolation='nearest', origin='lower')
+    plt.imshow(data, cmap='jet', origin='lower')
     plt.colorbar()
 
     plt.savefig('utme_cross.png')

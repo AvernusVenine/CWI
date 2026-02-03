@@ -75,6 +75,9 @@ def load(path):
 
     return df
 
+def load_qdi_raw():
+    return pd.read_csv(f'{config.RAW_DATA_PATH}/qdi.csv', low_memory=False, on_bad_lines='skip')
+
 def load_and_embed(subset=None):
     """
     Loads the dataset from its raw form and embeds the text features then saves it to save time
