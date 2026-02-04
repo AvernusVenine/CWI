@@ -170,52 +170,27 @@ def load_cwi_data(county=(55,), early_return=False):
 
     df = df.sort_values([Field.RELATEID, Field.ELEVATION_BOT])
 
+    """Entire layer is usable"""
     df['type'] = 0
+
+    """Only the top half of the layer is known"""
     bottom_index = df.groupby(Field.RELATEID)[Field.ELEVATION_BOT].idxmin()
     df.loc[bottom_index, 'type'] = 1
+
+    """Only endpoints of the layer is known"""
+    df.loc[df['strat_top'] != df['strat_bot'], 'type'] = 2
+
+    """Only the top endpoint is known"""
+    df.loc[(df['type'] == 2) & bottom_index, 'type'] = 3
 
     if early_return:
         return df
 
-    point_df = df[df['strat_top'] != df['strat_bot']]
-    point_df['type'] = 2
-
-    point_df = point_df.drop(['strat_top', 'strat_bot']).rename()
-
     sdf = SignedDistanceFunction(df)
-
-    valid_codes = {
-        
-    }
-
-    qdf = df[df[Field.STRAT].astype(str).str[0].isin(['Q', 'R', 'W', 'F', 'Y', 'X'])]
-    qdf[Field.STRAT] = 'Quaternary'
-
-    kdf = df[df[Field.STRAT].astype(str).str[0].isin(['K'])]
-    kdf[Field.STRAT] = 'Cretaceous'
-
-    df = df[df[Field.STRAT].isin(list(valid_codes.keys()))]
-
-    df[Field.STRAT] = df[Field.STRAT].replace(valid_codes)
-
-    df = pd.concat([df, qdf, kdf])
-
-    df = condense_layers(df)
-
-    """Get rid of all 0 thickness layers and single layer boreholes"""
-    df = df[df[Field.ELEVATION_TOP] - df[Field.ELEVATION_BOT] > 0.0]
-    df = df.groupby('relateid').filter(lambda x: len(x) > 1)
 
     """Drop layers that have very low representation in the dataset"""
     count = df[Field.STRAT].value_counts()
     df = df[df[Field.STRAT].isin(count[count > 100].index)]
-
-    if early_return:
-        return df
-
-    encoder = LabelEncoder()
-    df[Field.STRAT] = encoder.fit_transform(df[Field.STRAT])
-    joblib.dump(encoder, 'nn/strat.enc')
 
     """Split the dataset by entire wells instead of by individual layers"""
     relateids = list(set(df[Field.RELATEID].values))
@@ -225,8 +200,6 @@ def load_cwi_data(county=(55,), early_return=False):
 
     train_ids = relateids[:split]
     test_ids = relateids[split:]
-
-    sdf = SignedDistanceFunction(df, len(encoder.classes_))
 
     utme_scaler = MinMaxScaler()
     df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]].values.tolist())
@@ -241,6 +214,8 @@ def load_cwi_data(county=(55,), early_return=False):
     df[Field.ELEVATION_TOP] = elevation_scaler.transform(df[[Field.ELEVATION_TOP]].values.tolist())
     df[Field.ELEVATION_BOT] = elevation_scaler.transform(df[[Field.ELEVATION_BOT]].values.tolist())
     joblib.dump(elevation_scaler, 'nn/elevation.scl')
+
+
 
     train_df = df[df[Field.RELATEID].isin(train_ids)]
     test_df = df[df[Field.RELATEID].isin(test_ids)]

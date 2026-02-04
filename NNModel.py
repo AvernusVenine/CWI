@@ -53,13 +53,14 @@ class IntervalNeuralNetwork(nn.Module):
 
 class SignedDistanceLoss(nn.Module):
 
-    def __init__(self, sdf, num_classes, num=25, lam=2.0, gamma=2.0):
+    def __init__(self, sdf, num_classes : int, num=25, lam=2.0, gamma=2.0, alpha=2.0):
         """
         Initializes the SignedDistanceLoss function
         Args:
             sdf: SignedDistanceFunction used to calculate assumed signed distances
             num: Number of points to use when emulating integration over a depth range
             lam: Lambda value used to regularize the weight lambda/NUM_CLASSES for formation membership
+            alpha: Weight used for incorrect classification loss
         """
         super().__init__()
         self.sdf = sdf
@@ -68,13 +69,125 @@ class SignedDistanceLoss(nn.Module):
         self.num = num
         self.lam = lam
         self.gamma = gamma
+        self.alpha = alpha
 
         self.utme_scaler = joblib.load('nn/utme.scl')
         self.utmn_scaler = joblib.load('nn/utmn.scl')
         self.elevation_scaler = joblib.load('nn/elevation.scl')
 
-    def forward(self, model, X, label, device):
+    def forward(self, model, X, label, data_type, device):
         batch_size = X.shape[0]
+
+        total_loss = 0
+
+        mask = (data_type == 0).view(-1, 1, 1)
+
+        for idx in range(0, 4):
+            mask = data_type == idx
+
+            X_type = X[mask]
+            label_type = label[mask]
+            batch_size = X_type.shape[0]
+
+            if idx == 0:
+                alphas = torch.linspace(0, 1, self.num, device=device).view(1, self.num)
+                elevation_top_expanded = X_type[:, 0].view(batch_size, 1)
+                elevation_bot_expanded = X_type[:, 1].view(batch_size, 1)
+
+                elevations = elevation_top_expanded + alphas * (elevation_bot_expanded - elevation_top_expanded)
+
+                spatial = X_type[:, 2:].unsqueeze(1).expand(-1, self.num, -1)
+
+                elevations_expanded = elevations.unsqueeze(2)
+
+                X_type = torch.cat([elevations_expanded, spatial], dim=2)
+                X_type = X_type.view(batch_size * self.num, 3)
+
+                output = model(X_type)
+                output = output.view(batch_size, self.num, self.num_classes)
+
+                utme = self.utme_scaler.inverse_transform(X_type[:, 1].cpu().numpy().reshape(-1, 1)).flatten()
+                utmn = self.utmn_scaler.inverse_transform(X_type[:, 2].cpu().numpy().reshape(-1, 1)).flatten()
+                elevation = self.elevation_scaler.inverse_transform(X_type[:, 0].cpu().numpy().reshape(-1, 1)).flatten()
+
+                label_expanded = label_type.repeat_interleave(self.num, dim=0).cpu().numpy().flatten()
+
+                dist = self.sdf.compute_all(utme, utmn, elevation, label_expanded)
+                dist = torch.tensor(dist, dtype=torch.float32, device=device)
+                dist = dist.view(batch_size, self.num, self.num_classes)
+
+                member_weight = torch.where(dist >= 0,
+                                            torch.tensor(1, dtype=torch.float32, device=device),
+                                            torch.tensor(0.5, dtype=torch.float32, device=device))
+
+                sdf_loss = F.mse_loss(output, dist, reduction='none')
+
+                """Classification Loss"""
+
+                predicted_labels = output.argmax(dim=2)
+                label_type_expanded = label_type.unsqueeze(1).expand(-1, self.num)
+
+                mask = (predicted_labels != label_type_expanded).float()
+
+                classification_loss = mask.unsqueeze(2).expand_as(sdf_loss)
+
+                """Total Loss"""
+
+                loss = member_weight * sdf_loss + self.alpha * classification_loss
+
+                total_loss = total_loss + loss
+
+            if idx == 2:
+                alphas = torch.linspace(0, 1, self.num, device=device).view(1, self.num)
+                elevation_top_expanded = X_type[:, 0].view(batch_size, 1)
+                elevation_bot_expanded = X_type[:, 1].view(batch_size, 1)
+
+                elevations = elevation_top_expanded + alphas * (elevation_bot_expanded - elevation_top_expanded)
+
+                spatial = X_type[:, 2:].unsqueeze(1).expand(-1, self.num, -1)
+
+                elevations_expanded = elevations.unsqueeze(2)
+
+                X_type = torch.cat([elevations_expanded, spatial], dim=2)
+                X_type = X_type.view(batch_size * self.num, 3)
+
+                output = model(X_type)
+                output = output.view(batch_size, self.num, self.num_classes)
+
+                utme = self.utme_scaler.inverse_transform(X_type[:, 1].cpu().numpy().reshape(-1, 1)).flatten()
+                utmn = self.utmn_scaler.inverse_transform(X_type[:, 2].cpu().numpy().reshape(-1, 1)).flatten()
+                elevation = self.elevation_scaler.inverse_transform(X_type[:, 0].cpu().numpy().reshape(-1, 1)).flatten()
+
+                label_expanded = label_type.repeat_interleave(self.num, dim=0).cpu().numpy().flatten()
+
+                mid = len(utme) // 2
+
+                dist = self.sdf.compute_all(utme[mid:], utmn[mid:], elevation[mid:], label_expanded[mid:])
+                dist = torch.tensor(dist, dtype=torch.float32, device=device)
+                dist = dist.view(batch_size, self.num, self.num_classes)
+
+                sdf_output =
+
+                member_weight = torch.where(dist >= 0,
+                                            torch.tensor(1, dtype=torch.float32, device=device),
+                                            torch.tensor(0.5, dtype=torch.float32, device=device))
+
+                sdf_loss = F.mse_loss(output, dist, reduction='none')
+
+                """Classification Loss"""
+
+                predicted_labels = output.argmax(dim=2)
+                label_type_expanded = label_type.unsqueeze(1).expand(-1, self.num)
+
+                mask = (predicted_labels != label_type_expanded).float()
+
+                classification_loss = mask.unsqueeze(2).expand_as(sdf_loss)
+
+                """Total Loss"""
+
+                loss = member_weight * sdf_loss + self.alpha * classification_loss
+
+                total_loss = total_loss + loss
 
         alphas = torch.linspace(0, 1, self.num, device=device).view(1, self.num)
         depth_top_expanded = X[:, 0].view(batch_size, 1)
