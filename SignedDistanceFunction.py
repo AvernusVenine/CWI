@@ -25,127 +25,27 @@ class Strat:
 
 class SignedDistanceFunction:
 
-    """Dictionary of strat codes where each value is a pair of (TOP, BOTTOM) labels"""
-    CODE_DICT = {
-        'OPDC' : (Strat.PRAIRIE_DU_CHIEN, Strat.PRAIRIE_DU_CHIEN),
-        'OSTP' : (Strat.ST_PETER, Strat.ST_PETER),
-        'CJDN' : (Strat.JORDAN, Strat.JORDAN),
-        'OPVL' : (Strat.PLATTEVILLE, Strat.PLATTEVILLE),
-        'OGWD' : (Strat.GLENWOOD, Strat.GLENWOOD),
-        'ODCR' : (Strat.DECORAH_SHALE, Strat.DECORAH_SHALE),
-        'OGCM' : (Strat.GALENA, Strat.GALENA),
-        'OPSH' : (Strat.PRAIRIE_DU_CHIEN, Strat.PRAIRIE_DU_CHIEN),
-        'OGPC' : (Strat.GALENA, Strat.GALENA),
-        'OPOD' : (Strat.PRAIRIE_DU_CHIEN, Strat.PRAIRIE_DU_CHIEN),
-        'OPGW' : (Strat.PLATTEVILLE, Strat.GLENWOOD),
-        'OGSC' : (Strat.GALENA, Strat.GALENA),
-        'OGCD' : (Strat.GALENA, Strat.DECORAH_SHALE),
-        'CSTL' : (Strat.ST_LAWRENCE, Strat.ST_LAWRENCE),
-        'OGPR' : (Strat.GALENA, Strat.GALENA),
-        'OGSV' : (Strat.GALENA, Strat.GALENA),
-        'CTLR' : (Strat.TUNNEL_CITY, Strat.TUNNEL_CITY),
-        'OGVP' : (Strat.GALENA, Strat.GALENA),
-        #'ODPG' BAD CODE
-        'CECR' : (Strat.EAU_CLAIRE, Strat.EAU_CLAIRE),
-        'ODGL' : (Strat.GALENA, Strat.GALENA),
-        'ODPL' : (Strat.DECORAH_SHALE, Strat.PLATTEVILLE),
-        'OPNR' : (Strat.PRAIRIE_DU_CHIEN, Strat.PRAIRIE_DU_CHIEN),
-        'CWOC' : (Strat.WONEWOC, Strat.WONEWOC),
-        'OPWR' : (Strat.PRAIRIE_DU_CHIEN, Strat.PRAIRIE_DU_CHIEN),
-        'CTCG' : (Strat.TUNNEL_CITY, Strat.TUNNEL_CITY),
-    }
-
-    def __init__(self, df):
+    def __init__(self, df, max_label):
         self.kdtree = None
         self.utm = None
         self.df = df.copy()
 
         self.k = 10
-        self.max_label = 0
+        self.max_label = max_label
         self.meter_const = 3.28
 
         self.extract_boundaries()
-        #self.create_kdtree()
+        self.create_kdtree()
 
     def extract_boundaries(self):
         """
         Extracts all known boundary data points
         Returns:
         """
-        df = self.df[self.df[Field.STRAT].isin(self.CODE_DICT.keys())]
-        df['strat_top'] = df[Field.STRAT].apply(lambda x: self.CODE_DICT[x][0])
-        df['strat_bot'] = df[Field.STRAT].apply(lambda x: self.CODE_DICT[x][1])
 
-        qdf = self.df[self.df[Field.STRAT].astype(str).str[0].isin(['Q', 'R', 'F', 'X', 'Y'])]
-        qdf[['strat_top', 'strat_bot']] = (Strat.QUATERNARY, Strat.QUATERNARY)
-
-        kdf = self.df[self.df[Field.STRAT].astype(str).str[0] == 'K']
-        kdf[['strat_top', 'strat_bot']] = (Strat.CRETACEOUS, Strat.CRETACEOUS)
-
-        df = pd.concat([df, qdf, kdf])
-
-        """Condense layers"""
-        df = df.sort_values([Field.RELATEID, Field.ELEVATION_TOP, Field.ELEVATION_BOT], ascending=[True, False, True])
-        new_df = pd.DataFrame(columns=df.columns)
-
-        for _, hole in df.groupby(Field.RELATEID):
-            strat_top = None
-            strat_bot = None
-            elevation_top = 0
-            elevation_bot = 0
-
-            relateid = 0
-            utme = 0
-            utmn = 0
-
-            for _, row in hole.iterrows():
-                if row['strat_top'] == strat_bot and row[Field.ELEVATION_TOP] == elevation_bot:
-                    elevation_bot = row[Field.ELEVATION_BOT]
-                    strat_bot = row['strat_bot']
-                elif strat_top is None:
-                    elevation_top = row[Field.ELEVATION_TOP]
-                    elevation_bot = row[Field.ELEVATION_BOT]
-
-                    strat_top = row['strat_top']
-                    strat_bot = row['strat_bot']
-
-                    relateid = row[Field.RELATEID]
-                    utme = row[Field.UTME]
-                    utmn = row[Field.UTMN]
-                else:
-                    section = pd.DataFrame({
-                        Field.RELATEID: [relateid],
-                        Field.UTME: [utme],
-                        Field.UTMN: [utmn],
-                        Field.ELEVATION_TOP: [elevation_top],
-                        Field.ELEVATION_BOT: [elevation_bot],
-                        'strat_top': [strat_top],
-                        'strat_bot': [strat_bot]
-                    })
-                    new_df = pd.concat([new_df, section])
-
-                    elevation_top = row[Field.ELEVATION_TOP]
-                    elevation_bot = row[Field.ELEVATION_BOT]
-
-                    strat_top = row['strat_top']
-                    strat_bot = row['strat_bot']
-
-            section = pd.DataFrame({
-                Field.RELATEID: [relateid],
-                Field.UTME: [utme],
-                Field.UTMN: [utmn],
-                Field.ELEVATION_TOP: [elevation_top],
-                Field.ELEVATION_BOT: [elevation_bot],
-                'strat_top': [strat_top],
-                'strat_bot': [strat_bot]
-            })
-            new_df = pd.concat([new_df, section])
-
-        df = new_df
-
-        df_top = df.drop(columns=[Field.ELEVATION_BOT, Field.STRAT, 'strat_bot']).rename(columns={Field.ELEVATION_TOP: Field.ELEVATION,
+        df_top = self.df.drop(columns=[Field.ELEVATION_BOT, Field.STRAT, 'strat_bot']).rename(columns={Field.ELEVATION_TOP: Field.ELEVATION,
                                                                              'strat_top' : Field.STRAT})
-        df_bot = df.drop(columns=[Field.ELEVATION_TOP, Field.STRAT, 'strat_top']).rename(columns={Field.ELEVATION_BOT: Field.ELEVATION,
+        df_bot = self.df.drop(columns=[Field.ELEVATION_TOP, Field.STRAT, 'strat_top']).rename(columns={Field.ELEVATION_BOT: Field.ELEVATION,
                                                                              'strat_bot' : Field.STRAT})
 
         """Remove the top most reading of a borehole to simplify the model and use actual elevation as a cutoff"""

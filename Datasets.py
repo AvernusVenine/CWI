@@ -57,15 +57,16 @@ class Strat:
 
 class StratDataset(Dataset):
 
-    def __init__(self, X, y):
+    def __init__(self, X, y, data_type):
         self.X = torch.from_numpy(X.values).float()
         self.y = torch.from_numpy(y[Field.STRAT].values).long()
+        self.data_type = torch.from_numpy(data_type['type'].values).long()
 
     def __len__(self):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
+        return self.X[idx], self.y[idx], self.data_type[idx]
 
 def condense_layers(df):
     """
@@ -136,7 +137,7 @@ def condense_layers(df):
 def load_cwi_data(county=(55,), early_return=False):
     warnings.filterwarnings('ignore')
 
-    print('LOADING DATASET')
+    print('LOADING CWI DATASET')
     df = Data.load('weighted.parquet')
     raw = Data.load_well_raw()
 
@@ -162,35 +163,96 @@ def load_cwi_data(county=(55,), early_return=False):
 
     df = pd.concat([df, qdf, kdf], ignore_index=True)
 
+    df = condense_layers(df)
+
     encoder = LabelEncoder()
     encoder.fit(list(set(df['strat_top'].values.tolist()).union(set(df['strat_bot'].values.tolist())))),
 
     df['strat_top'] = encoder.transform(df['strat_top'])
     df['strat_bot'] = encoder.transform(df['strat_bot'])
 
+    sdf = SignedDistanceFunction(df, len(encoder.classes_))
+
     df = df.sort_values([Field.RELATEID, Field.ELEVATION_BOT])
 
     """Entire layer is usable"""
-    df['type'] = 0
+    df['type'] = 1
 
     """Only the top half of the layer is known"""
+    df = df.reset_index()
     bottom_index = df.groupby(Field.RELATEID)[Field.ELEVATION_BOT].idxmin()
-    df.loc[bottom_index, 'type'] = 1
+    df.loc[bottom_index, 'type'] = 2
 
     """Only endpoints of the layer is known"""
-    df.loc[df['strat_top'] != df['strat_bot'], 'type'] = 2
+    df.loc[df['strat_top'] != df['strat_bot'], 'type'] = 3
 
     """Only the top endpoint is known"""
-    df.loc[(df['type'] == 2) & bottom_index, 'type'] = 3
+    df.loc[((df['type'] == 3) & (df.index.isin(bottom_index))), 'type'] = 4
 
-    if early_return:
-        return df
+    """Split data into half sections to simplify loss"""
+    df1 = df[df['type'] == 1]
+    df1_top = df1[[Field.RELATEID, Field.UTME, Field.UTMN, Field.ELEVATION_TOP, 'strat_top']]
+    df1_top[Field.ELEVATION_BOT] = df1[Field.ELEVATION_BOT] + (df1[Field.ELEVATION_TOP] - df1[Field.ELEVATION_BOT])/2
+    df1_top = df1_top.rename(columns={'strat_top' : Field.STRAT})
 
-    sdf = SignedDistanceFunction(df)
+    df1_bot = df1[[Field.RELATEID, Field.UTME, Field.UTMN, Field.ELEVATION_BOT, 'strat_bot']]
+    df1_bot[Field.ELEVATION_TOP] = df1[Field.ELEVATION_BOT] + (df1[Field.ELEVATION_TOP] - df1[Field.ELEVATION_BOT]) / 2
+    df1_bot = df1_bot.rename(columns={'strat_bot' : Field.STRAT})
+
+    df1 = pd.concat([df1_top, df1_bot])
+    df1['type'] = 1
+
+
+    df2 = df[df['type'] == 2]
+    df2_top = df2[[Field.RELATEID, Field.UTME, Field.UTMN, Field.ELEVATION_TOP, 'strat_top']]
+    df2_top[Field.ELEVATION_BOT] = df2[Field.ELEVATION_BOT] + (df2[Field.ELEVATION_TOP] - df2[Field.ELEVATION_BOT]) / 2
+    df2_top = df2_top.rename(columns={'strat_top' : Field.STRAT})
+    df2_top['type'] = 1
+
+    df2_bot = df2[[Field.RELATEID, Field.UTME, Field.UTMN, Field.ELEVATION_BOT, 'strat_bot']]
+    df2_bot[Field.ELEVATION_TOP] = df2[Field.ELEVATION_BOT] + (df2[Field.ELEVATION_TOP] - df2[Field.ELEVATION_BOT]) / 2
+    df2_bot = df2_bot.rename(columns={'strat_bot' : Field.STRAT})
+    df2_bot['type'] = 2
+
+    df2 = pd.concat([df2_top, df2_bot])
+
+
+    df3 = df[df['type'] == 3]
+    df3_top = df3[[Field.RELATEID, Field.UTME, Field.UTMN, Field.ELEVATION_TOP, 'strat_top']]
+    df3_top[Field.ELEVATION_BOT] = df3[Field.ELEVATION_TOP]
+    df3_top = df3_top.rename(columns={'strat_top' : Field.STRAT})
+    df3_top['type'] = 3
+
+    df3_bot = df3[[Field.RELATEID, Field.UTME, Field.UTMN, Field.ELEVATION_BOT, 'strat_bot']]
+    df3_bot[Field.ELEVATION_TOP] = df3[Field.ELEVATION_BOT]
+    df3_bot = df3_bot.rename(columns={'strat_bot' : Field.STRAT})
+    df3_bot['type'] = 3
+
+    df3 = pd.concat([df3_top, df3_bot])
+
+
+    """df4 = df[df['type'] == 4]
+    df4_top = df4[[Field.RELATEID, Field.UTME, Field.UTMN, Field.ELEVATION_TOP, 'strat_top']]
+    df4_top[Field.ELEVATION_BOT] = df4[Field.ELEVATION_TOP]
+    df4_top = df4_top.rename(columns={'strat_top' : Field.STRAT})
+
+    df4_bot = df4[[Field.RELATEID, Field.UTME, Field.UTMN, Field.ELEVATION_BOT, 'strat_bot']]
+    df4_bot[Field.ELEVATION_TOP] = df3[Field.ELEVATION_BOT]
+    df4_bot = df4_bot.rename(columns={'strat_bot' : Field.STRAT})
+
+    df4 = pd.concat([df4_top, df4_bot])
+    df3['type'] = 4"""
+
+    df = pd.concat([df1, df2, df3])
 
     """Drop layers that have very low representation in the dataset"""
     count = df[Field.STRAT].value_counts()
-    df = df[df[Field.STRAT].isin(count[count > 100].index)]
+    mask = count[count > 100].index
+
+    df = df[df[Field.STRAT].isin(mask)]
+
+    if early_return:
+        return df
 
     """Split the dataset by entire wells instead of by individual layers"""
     relateids = list(set(df[Field.RELATEID].values))
@@ -201,6 +263,7 @@ def load_cwi_data(county=(55,), early_return=False):
     train_ids = relateids[:split]
     test_ids = relateids[split:]
 
+    """Scale spatial values"""
     utme_scaler = MinMaxScaler()
     df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]].values.tolist())
     joblib.dump(utme_scaler, 'nn/utme.scl')
@@ -215,8 +278,6 @@ def load_cwi_data(county=(55,), early_return=False):
     df[Field.ELEVATION_BOT] = elevation_scaler.transform(df[[Field.ELEVATION_BOT]].values.tolist())
     joblib.dump(elevation_scaler, 'nn/elevation.scl')
 
-
-
     train_df = df[df[Field.RELATEID].isin(train_ids)]
     test_df = df[df[Field.RELATEID].isin(test_ids)]
 
@@ -226,18 +287,21 @@ def load_cwi_data(county=(55,), early_return=False):
     y_train = train_df[[Field.STRAT]]
     y_test = train_df[[Field.STRAT]]
 
+    type_train = train_df[['type']]
+    type_test = test_df[['type']]
+
     count = y_train[Field.STRAT].value_counts()
     weights = [(1/count[i])**.25 for i in y_train[Field.STRAT].values]
 
     sampler = WeightedRandomSampler(weights=weights, num_samples=int(len(y_train)), replacement=True)
 
-    train = StratDataset(X_train, y_train)
-    test = StratDataset(X_test, y_test)
+    train = StratDataset(X_train, y_train, type_train)
+    test = StratDataset(X_test, y_test, type_test)
 
     train_loader = DataLoader(train, batch_size=512, sampler=sampler)
     test_loader = DataLoader(test, batch_size=512)
 
-    return train_loader, test_loader, sdf
+    return train_loader, test_loader, sdf, encoder
 
 def load_qdi_data(county=27):
     warnings.filterwarnings('ignore')
