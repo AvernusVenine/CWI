@@ -34,7 +34,8 @@ class IntervalNeuralNetwork(nn.Module):
         super().__init__()
         self.num_classes = num_classes
 
-        self.linear1 = nn.Linear(3, 1024)
+        self.linear0 = nn.Linear(3, 2048)
+        self.linear1 = nn.Linear(2048, 1024)
         self.linear2 = nn.Linear(1024, 512)
         self.linear3 = nn.Linear(512, 256)
         self.linear4 = nn.Linear(256, self.num_classes)
@@ -42,6 +43,8 @@ class IntervalNeuralNetwork(nn.Module):
         self.dropout = nn.Dropout(p=.2)
 
     def forward(self, X):
+        X = F.relu(self.linear0(X))
+        X = self.dropout(X)
         X = F.relu(self.linear1(X))
         X = self.dropout(X)
         X = F.relu(self.linear2(X))
@@ -50,6 +53,25 @@ class IntervalNeuralNetwork(nn.Module):
         X = self.linear4(X)
 
         return X
+
+class SignedDistanceInterpolatedLoss(nn.Module):
+
+    def __init__(self, num_classes : int):
+        super().__init__()
+        self.num_classes = num_classes
+
+        self.elevation_scaler = joblib.load('nn/elevation.scl')
+
+    def forward(self, X, y, device):
+
+        member_weight = torch.where(y >= 0,
+                                    torch.tensor(1, dtype=torch.float32, device=device),
+                                    torch.tensor(0.5, dtype=torch.float32, device=device))
+
+        loss = F.mse_loss(X, y, reduction='none')
+        loss = member_weight * loss
+
+        return loss.mean()
 
 class SignedDistanceLoss(nn.Module):
 
@@ -129,12 +151,12 @@ class SignedDistanceLoss(nn.Module):
                 predicted_labels = output.argmax(dim=2)
                 label_type_expanded = label_type.unsqueeze(1).expand(-1, self.num)
 
-                classification_loss = torch.tensor(predicted_labels != label_type_expanded, dtype=torch.float32, device=device)
-                classification_loss = self.alpha * classification_loss
+                # classification_loss = torch.tensor(predicted_labels != label_type_expanded, dtype=torch.float32, device=device)
+                # classification_loss = (self.alpha / self.num) * classification_loss
 
                 """Total Loss"""
 
-                loss = sdf_loss.sum() + classification_loss.sum()
+                loss = sdf_loss.sum()# + classification_loss.sum()
 
                 total_loss = total_loss + loss
 
@@ -163,14 +185,14 @@ class SignedDistanceLoss(nn.Module):
                 predicted_labels = output.argmax(dim=2)
                 label_type_expanded = label_type.unsqueeze(1).expand(-1, self.num)
 
-                classification_loss = torch.tensor(predicted_labels != label_type_expanded, dtype=torch.float32, device=device)
-                classification_loss = self.alpha * classification_loss
+                # classification_loss = torch.tensor(predicted_labels != label_type_expanded, dtype=torch.float32, device=device)
+                # classification_loss = (self.alpha / self.num) * classification_loss
 
                 """Total Loss"""
 
-                loss = classification_loss.sum()
+                # loss = classification_loss.sum()
 
-                total_loss = total_loss + loss
+                # total_loss = total_loss + loss
 
             """Only endpoints are known for SDF (Mixed code layer)"""
             if idx == 3:
@@ -249,6 +271,71 @@ class IntervalIntegratedLoss(nn.Module):
 
         return loss.mean()
 
+def train_model_interpolated(data, max_epochs=15, lr=1e-3, retrain=False):
+    train_loader = data[0]
+    test_loader = data[1]
+    sdf = data[2]
+    encoder = data[3]
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model = IntervalNeuralNetwork(len(encoder.classes_))
+
+    if retrain:
+        state_dict = torch.load('nn/sdf.pth')
+        model.load_state_dict(state_dict)
+
+    model.to(device)
+
+    optimizer = Adam(model.parameters(), lr=lr)
+    loss_func = SignedDistanceInterpolatedLoss(len(encoder.classes_))
+
+    best_loss = np.inf
+
+    for epoch in range(max_epochs):
+        print(f'Epoch {epoch+1}')
+
+        model.train()
+
+        train_loss = 0
+        for X, y in train_loader:
+            X = X.to(device)
+            y = y.to(device)
+
+            output = model(X)
+
+            loss = loss_func(output, y, device)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item()
+
+        print(f'Train Loss {train_loss / len(train_loader)}')
+
+        model.eval()
+
+        total = 0
+        correct = 0
+
+        test_loss = 0
+        with torch.no_grad():
+            for X, y in test_loader:
+                X = X.to(device)
+                y = y.to(device)
+
+                output = model(X)
+
+                loss = loss_func(output, y, device)
+
+                test_loss += loss.item()
+
+        print(f'Test Loss {test_loss / len(test_loader)}')
+
+        if test_loss < best_loss:
+            torch.save(model.state_dict(), 'nn/sdf.pth')
+
 def train_model(data, max_epochs=15, lr=1e-3, retrain=False):
     train_loader = data[0]
     test_loader = data[1]
@@ -317,7 +404,7 @@ def test_model(utme, utmn, depth, elevation):
 
     encoder = joblib.load('nn/strat.enc')
 
-    model = IntervalNeuralNetwork(len(encoder.classes_))
+    model = IntervalNeuralNetwork(13)
     state_dict = torch.load('nn/sdf.pth')
     model.load_state_dict(state_dict)
     model.eval()
@@ -405,7 +492,7 @@ def utme_cross_section(utme, utmn, elevation, utm_count=100):
 
     encoder = joblib.load('nn/strat.enc')
 
-    model = IntervalNeuralNetwork(len(encoder.classes_))
+    model = IntervalNeuralNetwork(13)
     state_dict = torch.load('nn/sdf.pth')
     model.load_state_dict(state_dict)
     model.eval()
@@ -414,7 +501,7 @@ def utme_cross_section(utme, utmn, elevation, utm_count=100):
     utmn_scaler = joblib.load('nn/utmn.scl')
     elevation_scaler = joblib.load('nn/elevation.scl')
 
-    utme_size = (utme[1] - utme[0])/utm_count
+    utme_size = (utme[0] - utme[1])/utm_count
 
     data = np.full([(elevation[0] - elevation[1]), utm_count], -1)
 
@@ -434,10 +521,20 @@ def utme_cross_section(utme, utmn, elevation, utm_count=100):
 
             data[jdx, idx] = int(torch.argmax(output))
 
-    plt.figure()
+    fig, ax = plt.subplots()
 
-    plt.imshow(data, cmap='jet', origin='lower')
-    plt.colorbar()
+    im = ax.imshow(data, cmap='jet', origin='lower', aspect='auto', extent=(utme[1], utme[0], elevation[1], elevation[0]))
+    cbar = plt.colorbar(im, ax=ax)
+
+    classes = np.unique(data[data >= 0])
+    cbar.set_ticks(classes)
+
+    classes = encoder.inverse_transform(classes)
+    cbar.set_ticklabels(classes)
+    cbar.set_label('Formation')
+
+    ax.set_xlabel('UTME')
+    ax.set_ylabel('Elevation')
 
     plt.savefig('utme_cross.png')
     plt.close()

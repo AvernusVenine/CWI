@@ -30,7 +30,7 @@ class SignedDistanceFunction:
         self.utm = None
         self.df = df.copy()
 
-        self.k = 10
+        self.k = 5
         self.max_label = max_label
         self.meter_const = 3.28
 
@@ -126,6 +126,12 @@ class SignedDistanceFunction:
             return min_dist
         else:
             return -min_dist
+
+    def compute(self, utme, utmn, elevation, strat):
+
+
+
+        pass
 
     def compute_all(self, utme, utmn, elevation, strat):
         """

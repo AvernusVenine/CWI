@@ -5,6 +5,7 @@ import joblib
 import warnings
 import pandas as pd
 import random
+import numpy as np
 
 import Data
 from Data import Field
@@ -67,6 +68,18 @@ class StratDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx], self.data_type[idx]
+
+class StratDatasetInterpolated(Dataset):
+
+    def __init__(self, X, y):
+        self.X = torch.from_numpy(X.values).float()
+        self.y = torch.from_numpy(y).float()
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
 
 def condense_layers(df):
     """
@@ -133,6 +146,158 @@ def condense_layers(df):
         new_df = pd.concat([new_df, section])
 
     return new_df
+
+def load_cwi_data_interpolated(county=(55,), early_return=False):
+    warnings.filterwarnings('ignore')
+
+    print('LOADING CWI DATASET')
+    df = Data.load('weighted.parquet')
+    raw = Data.load_well_raw()
+
+    df[Field.COUNTY] = df[Field.RELATEID].map(raw.set_index(Field.RELATEID)[Field.COUNTY])
+    df = df[df[Field.COUNTY].isin(county)]
+
+    df = df.dropna(subset=[Field.DEPTH_TOP, Field.DEPTH_BOT, Field.UTME, Field.UTMN, Field.ELEVATION])
+
+    df[Field.ELEVATION_TOP] = df[Field.ELEVATION] - df[Field.DEPTH_TOP]
+    df[Field.ELEVATION_BOT] = df[Field.ELEVATION] - df[Field.DEPTH_BOT]
+
+    df = df[[Field.RELATEID, Field.STRAT, Field.UTME, Field.UTMN, Field.ELEVATION_TOP, Field.ELEVATION_BOT]]
+
+    qdf = df[df[Field.STRAT].astype(str).str[0].isin(['Q', 'R', 'F', 'X', 'Y'])]
+    qdf[['strat_top', 'strat_bot']] = (Strat.QUATERNARY, Strat.QUATERNARY)
+
+    kdf = df[df[Field.STRAT].astype(str).str[0].isin(['K'])]
+    kdf[['strat_top', 'strat_bot']] = (Strat.CRETACEOUS, Strat.CRETACEOUS)
+
+    df = df[df[Field.STRAT].isin(Strat.CODE_DICT.keys())]
+    df['strat_top'] = df[Field.STRAT].apply(lambda x: Strat.CODE_DICT[x][0])
+    df['strat_bot'] = df[Field.STRAT].apply(lambda x: Strat.CODE_DICT[x][1])
+
+    df = pd.concat([df, qdf, kdf], ignore_index=True)
+
+    df = condense_layers(df)
+
+    encoder = LabelEncoder()
+    encoder.fit(list(set(df['strat_top'].values.tolist()).union(set(df['strat_bot'].values.tolist()))))
+    joblib.dump(encoder, 'nn/strat.enc')
+
+    df['strat_top'] = encoder.transform(df['strat_top'])
+    df['strat_bot'] = encoder.transform(df['strat_bot'])
+
+    if early_return:
+        return df
+
+    sdf = SignedDistanceFunction(df, len(encoder.classes_))
+
+    df = df.sort_values([Field.RELATEID, Field.ELEVATION_BOT])
+
+    """Entire layer is usable"""
+    df['type'] = 1
+
+    """Only the top half of the layer is known"""
+    df = df.reset_index()
+    bottom_index = df.groupby(Field.RELATEID)[Field.ELEVATION_BOT].idxmin()
+    df.loc[bottom_index, 'type'] = 2
+
+    """Only endpoints of the layer is known"""
+    df.loc[df['strat_top'] != df['strat_bot'], 'type'] = 3
+
+    """Only the top endpoint is known"""
+    df.loc[((df['type'] == 3) & (df.index.isin(bottom_index))), 'type'] = 4
+
+    """Precompute interpolated SDF values to speed up training"""
+    print('INTERPOLATING DATA')
+    interpolated_rows = []
+
+    for _, row in df.iterrows():
+        elev_top = row[Field.ELEVATION_TOP]
+        elev_bot = row[Field.ELEVATION_BOT]
+
+        if row['type'] == 3:
+
+            """We assume mixed codes have at least 2 foot of formation above/below the boundary"""
+            for idx in range(4):
+                elevation = elev_top - idx / 2.0
+
+                new_row = row.to_dict()
+                new_row[Field.ELEVATION] = elevation
+                new_row['strat_bot'] = new_row['strat_top']
+
+                elevation = elev_bot + idx / 2.0
+
+                new_row = row.to_dict()
+                new_row[Field.ELEVATION] = elevation
+                new_row['strat_top'] = new_row['strat_bot']
+
+            continue
+
+        if row['type'] == 2:
+            elev_bot = elev_bot + (elev_top - elev_bot) / 2.0
+
+        for idx in range(10):
+            elevation = idx / 10.0 * (elev_top - elev_bot) + elev_bot
+
+            new_row = row.to_dict()
+            new_row[Field.ELEVATION] = elevation
+
+            interpolated_rows.append(new_row)
+
+        pass
+
+    df = pd.DataFrame(interpolated_rows)
+    df = df.drop(columns=['strat_top', Field.STRAT, Field.ELEVATION_BOT, Field.ELEVATION_TOP, 'type'])
+    df = df.rename(columns={'strat_bot': Field.STRAT})
+
+    count = df[Field.STRAT].value_counts()
+    mask = count[count > 100].index
+
+    df = df[df[Field.STRAT].isin(mask)]
+    df = df.reset_index(drop=True)
+
+    print('COMPUTING SDF')
+
+    arr = np.array(df[[Field.UTME, Field.UTMN, Field.ELEVATION, Field.STRAT]].values.tolist())
+    y = sdf.compute_all(arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3])
+    y = np.array(y)
+
+    """Split the dataset by entire wells instead of by individual layers"""
+    relateids = list(set(df[Field.RELATEID].values))
+    random.shuffle(relateids)
+
+    split = int(len(relateids) * .85)
+
+    train_ids = relateids[:split]
+    test_ids = relateids[split:]
+
+    """Scale spatial values"""
+    utme_scaler = MinMaxScaler()
+    df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]].values.tolist())
+    joblib.dump(utme_scaler, 'nn/utme.scl')
+
+    utmn_scaler = MinMaxScaler()
+    df[Field.UTMN] = utmn_scaler.fit_transform(df[[Field.UTMN]].values.tolist())
+    joblib.dump(utmn_scaler, 'nn/utmn.scl')
+
+    elevation_scaler = MinMaxScaler()
+    df[Field.ELEVATION] = elevation_scaler.fit_transform(df[[Field.ELEVATION]].values.tolist())
+    joblib.dump(elevation_scaler, 'nn/elevation.scl')
+
+    train_df = df[df[Field.RELATEID].isin(train_ids)]
+    test_df = df[df[Field.RELATEID].isin(test_ids)]
+
+    X_train = train_df[[Field.ELEVATION, Field.UTME, Field.UTMN]]
+    X_test = test_df[[Field.ELEVATION, Field.UTME, Field.UTMN]]
+
+    y_train = y[train_df.index]
+    y_test = y[test_df.index]
+    train = StratDatasetInterpolated(X_train, y_train)
+    test = StratDatasetInterpolated(X_test, y_test)
+
+    train_loader = DataLoader(train, batch_size=512, shuffle=True)
+    test_loader = DataLoader(test, batch_size=512)
+
+    return train_loader, test_loader, sdf, encoder
 
 def load_cwi_data(county=(55,), early_return=False):
     warnings.filterwarnings('ignore')
