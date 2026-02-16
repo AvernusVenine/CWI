@@ -30,7 +30,7 @@ class StratDataset(Dataset):
 
 class IntervalNeuralNetwork(nn.Module):
 
-    def __init__(self, num_classes):
+    def __init__(self, num_classes : int):
         super().__init__()
         self.num_classes = num_classes
 
@@ -56,13 +56,14 @@ class IntervalNeuralNetwork(nn.Module):
 
 class SignedDistanceInterpolatedLoss(nn.Module):
 
-    def __init__(self, num_classes : int):
+    def __init__(self, num_classes : int, lam = 1.0):
         super().__init__()
         self.num_classes = num_classes
+        self.lam = lam
 
         self.elevation_scaler = joblib.load('nn/elevation.scl')
 
-    def forward(self, X, y, device):
+    def forward(self, X, y, spatial, device):
 
         member_weight = torch.where(y >= 0,
                                     torch.tensor(1, dtype=torch.float32, device=device),
@@ -71,7 +72,36 @@ class SignedDistanceInterpolatedLoss(nn.Module):
         loss = F.mse_loss(X, y, reduction='none')
         loss = member_weight * loss
 
-        return loss.mean()
+        if spatial is None:
+            return loss.mean()
+
+        if not spatial.requires_grad:
+            spatial.requires_grad_(True)
+
+        gradients = torch.autograd.grad(
+            outputs=X,
+            inputs=spatial,
+            grad_outputs=torch.ones_like(X),
+            create_graph=True,
+            retain_graph=True
+        )[0]
+
+        hessian = []
+        for idx in range(3):
+            second_derivative = torch.autograd.grad(
+                outputs=gradients[:, idx].sum(),
+                inputs=spatial,
+                create_graph=True,
+                retain_graph=True
+            )[0][:, idx]
+
+            hessian.append(second_derivative)
+
+        hessian = torch.stack(hessian, dim=1)
+
+        smoothness_loss = torch.mean(hessian ** 2)
+
+        return loss.mean() + self.lam * smoothness_loss
 
 class SignedDistanceLoss(nn.Module):
 
@@ -302,9 +332,11 @@ def train_model_interpolated(data, max_epochs=15, lr=1e-3, retrain=False):
             X = X.to(device)
             y = y.to(device)
 
+            X.requires_grad_(True)
+
             output = model(X)
 
-            loss = loss_func(output, y, device)
+            loss = loss_func(output, y, X, device)
 
             optimizer.zero_grad()
             loss.backward()
@@ -327,7 +359,7 @@ def train_model_interpolated(data, max_epochs=15, lr=1e-3, retrain=False):
 
                 output = model(X)
 
-                loss = loss_func(output, y, device)
+                loss = loss_func(output, y, None, device)
 
                 test_loss += loss.item()
 
