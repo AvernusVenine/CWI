@@ -26,11 +26,80 @@ class Strat:
     TUNNEL_CITY = 'Tunnel City'
     EAU_CLAIRE = 'Eau Claire'
     WONEWOC = 'Wonewoc'
+    LOWER_CEDAR = 'Lower Cedar'
+    UPPER_CEDAR = 'Upper Cedar'
+    SPILLVILLE = 'Spillville'
+    PINICON_RIDGE = 'Pinicon Ridge'
+    MAQUOKETA = 'Maquoketa'
+    MT_SIMON = 'Mt Simon'
+    HINCKLEY = 'Hinckley'
+    FOND_DU_LAC = 'Fond Du Lac'
+    WINNIPEG = 'Winnipeg'
+    RED_RIVER = 'Red River'
+    SOLOR_CHURCH = 'Solor Church'
+
+    BIWABIK = 'Biwabik'
+    VIRGINIA_THOMSON = 'Virginia/Thomson'
+    PARTRIDGE_RIVER = 'Partridge River'
 
     CODE_DICT = {
+
+        'CWOC': (WONEWOC, WONEWOC),
+        'CTCG': (TUNNEL_CITY, TUNNEL_CITY),
+        'CECR': (EAU_CLAIRE, EAU_CLAIRE),
+        'CTLR': (TUNNEL_CITY, TUNNEL_CITY),
+        'CSTL': (ST_LAWRENCE, ST_LAWRENCE),
+        'CJDN': (JORDAN, JORDAN),
+        'CMTS': (MT_SIMON, MT_SIMON),
+        'CSLT': (ST_LAWRENCE, TUNNEL_CITY),
+        'CTCW': (TUNNEL_CITY, WONEWOC),
+        'CEMS': (EAU_CLAIRE, MT_SIMON),
+        'CJSL': (JORDAN, ST_LAWRENCE),
+        'CWEC': (WONEWOC, EAU_CLAIRE),
+        'CJTC': (JORDAN, TUNNEL_CITY),
+        #'CAMB': (None, None),
+        'CTMZ': (TUNNEL_CITY, TUNNEL_CITY),
+        'CWMS': (WONEWOC, MT_SIMON),
+        'CTCE': (TUNNEL_CITY, EAU_CLAIRE),
+        'CMSH': (MT_SIMON, HINCKLEY),
+        'CMRC': (MT_SIMON, MT_SIMON),
+        'CLRE': (TUNNEL_CITY, TUNNEL_CITY),
+        'CMFL': (MT_SIMON, FOND_DU_LAC),
+        'CLBK': (TUNNEL_CITY, TUNNEL_CITY),
+        'CJDW': (JORDAN, WONEWOC),
+        'CTCM': (TUNNEL_CITY, MT_SIMON),
+        'CSLW': (ST_LAWRENCE, WONEWOC),
+        'CJEC': (JORDAN, EAU_CLAIRE),
+        'CJMS': (JORDAN, MT_SIMON),
+
+        'DCVL': (LOWER_CEDAR, LOWER_CEDAR),
+        'DSPL': (SPILLVILLE, SPILLVILLE),
+        'DCVU': (UPPER_CEDAR, UPPER_CEDAR),
+        'DWPR': (PINICON_RIDGE, PINICON_RIDGE),
+        'DCLP': (LOWER_CEDAR, PINICON_RIDGE),
+        'DSOM': (SPILLVILLE, MAQUOKETA),
+        'DCLS': (LOWER_CEDAR, SPILLVILLE),
+        'DCOM': ((UPPER_CEDAR, LOWER_CEDAR), MAQUOKETA),
+        'DSOG': (SPILLVILLE, GALENA),
+        'DLGH': (UPPER_CEDAR, UPPER_CEDAR),
+        'DCOG': ((UPPER_CEDAR, LOWER_CEDAR), GALENA),
+        'DLCH': (UPPER_CEDAR, UPPER_CEDAR),
+        'DLBA': (LOWER_CEDAR, LOWER_CEDAR),
+        'DLHE': (LOWER_CEDAR, LOWER_CEDAR),
+        'DCGZ': (UPPER_CEDAR, UPPER_CEDAR),
+        'DPOM': (PINICON_RIDGE, MAQUOKETA),
+        'DPOG': (PINICON_RIDGE, GALENA),
+        'DCIC': (UPPER_CEDAR, UPPER_CEDAR),
+        'DCRL': (UPPER_CEDAR, UPPER_CEDAR),
+        'DCLB': (LOWER_CEDAR, LOWER_CEDAR),
+        'DLCD': (LOWER_CEDAR, LOWER_CEDAR),
+        'DCUM': (UPPER_CEDAR, UPPER_CEDAR),
+        'DCLC': (UPPER_CEDAR, LOWER_CEDAR),
+        #'DEVO': (None, None),
+        'DCVA': ((UPPER_CEDAR, LOWER_CEDAR), (UPPER_CEDAR, LOWER_CEDAR)),
+
         'OPDC': (PRAIRIE_DU_CHIEN, PRAIRIE_DU_CHIEN),
         'OSTP': (ST_PETER, ST_PETER),
-        'CJDN': (JORDAN, JORDAN),
         'OPVL': (PLATTEVILLE, PLATTEVILLE),
         'OGWD': (GLENWOOD, GLENWOOD),
         'ODCR': (DECORAH_SHALE, DECORAH_SHALE),
@@ -41,19 +110,60 @@ class Strat:
         'OPGW': (PLATTEVILLE, GLENWOOD),
         'OGSC': (GALENA, GALENA),
         'OGCD': (GALENA, DECORAH_SHALE),
-        'CSTL': (ST_LAWRENCE, ST_LAWRENCE),
         'OGPR': (GALENA, GALENA),
         'OGSV': (GALENA, GALENA),
-        'CTLR': (TUNNEL_CITY, TUNNEL_CITY),
         'OGVP': (GALENA, GALENA),
-        # 'ODPG' BAD CODE
-        'CECR': (EAU_CLAIRE, EAU_CLAIRE),
+        'ODPG': ((DECORAH_SHALE, PLATTEVILLE, GLENWOOD), (DECORAH_SHALE, PLATTEVILLE, GLENWOOD)),
         'ODGL': (GALENA, GALENA),
         'ODPL': (DECORAH_SHALE, PLATTEVILLE),
         'OPNR': (PRAIRIE_DU_CHIEN, PRAIRIE_DU_CHIEN),
-        'CWOC': (WONEWOC, WONEWOC),
         'OPWR': (PRAIRIE_DU_CHIEN, PRAIRIE_DU_CHIEN),
-        'CTCG': (TUNNEL_CITY, TUNNEL_CITY),
+        'OMAQ': (MAQUOKETA, MAQUOKETA),
+        'OSPC': (ST_PETER, PRAIRIE_DU_CHIEN),
+        'OPCJ': (PRAIRIE_DU_CHIEN, JORDAN),
+        'ODUB': (GALENA, GALENA),
+        'OGSP': (GLENWOOD, ST_PETER),
+        'OMQG': (MAQUOKETA, GALENA),
+        'OMQD': (MAQUOKETA, GALENA),
+        'OPSP': (PLATTEVILLE, ST_PETER),
+        #'ORDO': (None, None),
+        'OGSD': (GALENA, DECORAH_SHALE),
+        'OGDP': ((GALENA, DECORAH_SHALE, PLATTEVILLE), (GALENA, DECORAH_SHALE, PLATTEVILLE)),
+        'OWIN': (WINNIPEG, WINNIPEG),
+        'OSCJ': (ST_PETER, JORDAN),
+        'OGPD': (GALENA, DECORAH_SHALE),
+        'ORRV': (RED_RIVER, RED_RIVER),
+        'OOCV': (PRAIRIE_DU_CHIEN, PRAIRIE_DU_CHIEN),
+        'OPCT': (PRAIRIE_DU_CHIEN, TUNNEL_CITY),
+        'OPMI': (PLATTEVILLE, PLATTEVILLE),
+        'OGAP': (GALENA, ST_PETER),
+        'OPCS': (PRAIRIE_DU_CHIEN, ST_LAWRENCE),
+        'OPHF': (PLATTEVILLE, PLATTEVILLE),
+        'OPMA': (PLATTEVILLE, PLATTEVILLE),
+        'OSTN': (ST_PETER, ST_PETER),
+        'OOHC': (PRAIRIE_DU_CHIEN, PRAIRIE_DU_CHIEN),
+        'OSPE': (ST_PETER, ST_PETER),
+        'OPPE': (PLATTEVILLE, PLATTEVILLE),
+        'OGGP': (GALENA, GALENA),
+        'ODCA': (DECORAH_SHALE, DECORAH_SHALE),
+        'ODSP': (DECORAH_SHALE, ST_PETER),
+        'OPVJ': (PLATTEVILLE, JORDAN),
+        'OWBI': (WINNIPEG, WINNIPEG),
+        'OSCS': (ST_PETER, ST_LAWRENCE),
+        'OWIB': (WINNIPEG, WINNIPEG),
+        'OPCM': (PRAIRIE_DU_CHIEN, MT_SIMON),
+
+        'PMFL': (FOND_DU_LAC, FOND_DU_LAC),
+        'PMHF': (HINCKLEY, FOND_DU_LAC),
+        'PMHN': (HINCKLEY, HINCKLEY),
+        'PMSC': (SOLOR_CHURCH, SOLOR_CHURCH),
+
+        'PELC': (BIWABIK, BIWABIK),
+        'PEBI': (BIWABIK, BIWABIK),
+        'PEVT': (VIRGINIA_THOMSON, VIRGINIA_THOMSON),
+        'PELS': (BIWABIK, BIWABIK),
+        'PEUC': (BIWABIK, BIWABIK),
+        'PMPA': (PARTRIDGE_RIVER, PARTRIDGE_RIVER),
     }
 
 class StratDataset(Dataset):
@@ -103,9 +213,55 @@ def condense_layers(df):
         utmn = 0
 
         for _, row in hole.iterrows():
+
             if row['strat_top'] == strat_bot and row[Field.ELEVATION_TOP] == elevation_bot:
                 elevation_bot = row[Field.ELEVATION_BOT]
                 strat_bot = row['strat_bot']
+
+            elif type(row['strat_top']) is tuple:
+                if strat_bot in row['strat_top']:
+                    elevation_bot = row[Field.ELEVATION_BOT]
+                    strat_bot = row['strat_bot']
+                else:
+                    section = pd.DataFrame({
+                        Field.RELATEID: [relateid],
+                        Field.UTME: [utme],
+                        Field.UTMN: [utmn],
+                        Field.ELEVATION_TOP: [elevation_top],
+                        Field.ELEVATION_BOT: [elevation_bot],
+                        'strat_top': [strat_top],
+                        'strat_bot': [strat_bot]
+                    })
+                    new_df = pd.concat([new_df, section])
+
+                    elevation_top = row[Field.ELEVATION_TOP]
+                    elevation_bot = row[Field.ELEVATION_BOT]
+
+                    strat_top = row['strat_top']
+                    strat_bot = row['strat_bot']
+
+            elif type(strat_bot) is tuple:
+                if row['strat_top'] in strat_bot:
+                    elevation_bot = row[Field.ELEVATION_BOT]
+                    strat_bot = row['strat_bot']
+                else:
+                    section = pd.DataFrame({
+                        Field.RELATEID: [relateid],
+                        Field.UTME: [utme],
+                        Field.UTMN: [utmn],
+                        Field.ELEVATION_TOP: [elevation_top],
+                        Field.ELEVATION_BOT: [elevation_bot],
+                        'strat_top': [strat_top],
+                        'strat_bot': [strat_bot]
+                    })
+                    new_df = pd.concat([new_df, section])
+
+                    elevation_top = row[Field.ELEVATION_TOP]
+                    elevation_bot = row[Field.ELEVATION_BOT]
+
+                    strat_top = row['strat_top']
+                    strat_bot = row['strat_bot']
+
             elif strat_top is None:
                 elevation_top = row[Field.ELEVATION_TOP]
                 elevation_bot = row[Field.ELEVATION_BOT]
@@ -147,7 +303,7 @@ def condense_layers(df):
 
     return new_df
 
-def load_cwi_data_interpolated(county=(55,), early_return=False):
+def load_cwi_data_interpolated(county=(55,), early_return=False, save_path = 'nn'):
     warnings.filterwarnings('ignore')
 
     print('LOADING CWI DATASET')
@@ -178,15 +334,24 @@ def load_cwi_data_interpolated(county=(55,), early_return=False):
 
     df = condense_layers(df)
 
+    strat_top_vals = df['strat_top'].to_numpy()
+    is_tuple_top = np.frompyfunc(lambda x: isinstance(x, tuple), 1, 1)(strat_top_vals).astype(bool)
+    df = df[~is_tuple_top].copy()
+
+    strat_bot_vals = df['strat_bot'].to_numpy()
+    is_tuple_bot = np.frompyfunc(lambda x: isinstance(x, tuple), 1, 1)(strat_bot_vals).astype(bool)
+    df.loc[is_tuple_bot, 'strat_bot'] = [x[0] for x in strat_bot_vals[is_tuple_bot]]
+
     encoder = LabelEncoder()
     encoder.fit(list(set(df['strat_top'].values.tolist()).union(set(df['strat_bot'].values.tolist()))))
-    joblib.dump(encoder, 'nn/strat.enc')
 
     df['strat_top'] = encoder.transform(df['strat_top'])
     df['strat_bot'] = encoder.transform(df['strat_bot'])
 
     if early_return:
         return df
+
+    joblib.dump(encoder, f'{save_path}/strat.enc')
 
     sdf = SignedDistanceFunction(df, len(encoder.classes_))
 
@@ -273,15 +438,15 @@ def load_cwi_data_interpolated(county=(55,), early_return=False):
     """Scale spatial values"""
     utme_scaler = MinMaxScaler()
     df[Field.UTME] = utme_scaler.fit_transform(df[[Field.UTME]].values.tolist())
-    joblib.dump(utme_scaler, 'nn/utme.scl')
+    joblib.dump(utme_scaler, f'{save_path}/utme.scl')
 
     utmn_scaler = MinMaxScaler()
     df[Field.UTMN] = utmn_scaler.fit_transform(df[[Field.UTMN]].values.tolist())
-    joblib.dump(utmn_scaler, 'nn/utmn.scl')
+    joblib.dump(utmn_scaler, f'{save_path}/utmn.scl')
 
     elevation_scaler = MinMaxScaler()
     df[Field.ELEVATION] = elevation_scaler.fit_transform(df[[Field.ELEVATION]].values.tolist())
-    joblib.dump(elevation_scaler, 'nn/elevation.scl')
+    joblib.dump(elevation_scaler, f'{save_path}/elevation.scl')
 
     train_df = df[df[Field.RELATEID].isin(train_ids)]
     test_df = df[df[Field.RELATEID].isin(test_ids)]

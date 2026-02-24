@@ -7,22 +7,6 @@ from sklearn.preprocessing import LabelEncoder
 import Data, utils
 from Data import Field
 
-class Strat:
-    QUATERNARY = 'Quaternary'
-    CRETACEOUS = 'Cretaceous'
-
-    PRAIRIE_DU_CHIEN = 'Prairie Du Chien'
-    ST_PETER = 'St Peter'
-    JORDAN = 'Jordan'
-    PLATTEVILLE = 'Platteville'
-    GLENWOOD = 'Glenwood'
-    DECORAH_SHALE = 'Decorah Shale'
-    GALENA = 'Galena'
-    ST_LAWRENCE = 'St Lawrence'
-    TUNNEL_CITY = 'Tunnel City'
-    EAU_CLAIRE = 'Eau Claire'
-    WONEWOC = 'Wonewoc'
-
 class SignedDistanceFunction:
 
     def __init__(self, df, max_label):
@@ -127,9 +111,9 @@ class SignedDistanceFunction:
         else:
             return -min_dist
 
-    def compute(self, utme, utmn, elevation, strat):
+    def compute_optimized(self, utme, utmn, elevation, strat):
 
-
+        points = np.column_stack([utme, utmn])
 
         pass
 
